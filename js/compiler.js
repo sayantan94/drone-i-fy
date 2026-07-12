@@ -250,13 +250,13 @@ const COMPILER = (() => {
   }
 
   const SURPRISES = [
-    'a whale swims across the sky, dives through a ring, and bursts into blue fireworks',
-    'a phoenix rises in fire, orbits the moon, and becomes a golden crown',
+    'a lone archer fires a burning arrow across the moon',
+    'a phoenix rises from embers and spreads its wings over the city',
+    'a ballerina spins as roses rain onto the city',
+    'a boxer raises the championship belt under golden fireworks',
+    'india wins the cricket world cup',
+    'a rocket launches through a ring and orbits a spinning planet',
     'a comet crosses the moon, curls into a sphere, and bursts into golden fireworks',
-    'a dragon flies over a castle and breathes fire into the night',
-    'a rocket launches through a ring, orbits a spinning planet, and explodes into a rainbow burst',
-    'a butterfly glides across the sky and unfolds into a glowing spiral galaxy',
-    'lightning strikes, a tornado swirls, then a calm ocean wave rolls under the moon',
     'two hearts orbit each other, merge into a sphere, and shatter into golden fireworks',
   ];
 
