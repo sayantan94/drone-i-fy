@@ -521,18 +521,16 @@ const ENGINE = (() => {
     if (dd >= SEP_R || dd <= .01) return;
     /* different depth layers don't collide */
     if (Math.abs(a.z - b.z) * 260 > SEP_R) return;
-    /* parked drones hold station like a real show — collision
-       avoidance only matters for drones in transit */
-    if (a.lastDist < 12 && b.lastDist < 12) return;
+    /* station-holding drones are immovable — traffic yields to the
+       formation, never the other way around */
+    const lockA = a.lastDist < 12, lockB = b.lastDist < 12;
+    if (lockA && lockB) return;
     const overlap = SEP_R - dd;
     const f = (overlap / SEP_R) * SEP_PUSH * 16;
     const nx = dx / dd, ny = dy / dd;
-    a.vx += nx * f; a.vy += ny * f;
-    b.vx -= nx * f; b.vy -= ny * f;
-    /* a little positional resolve keeps dense formations from buzzing */
     const push = overlap * .18;
-    a.x += nx * push; a.y += ny * push;
-    b.x -= nx * push; b.y -= ny * push;
+    if (!lockA){ a.vx += nx * f; a.vy += ny * f; a.x += nx * push; a.y += ny * push; }
+    if (!lockB){ b.vx -= nx * f; b.vy -= ny * f; b.x -= nx * push; b.y -= ny * push; }
   }
   function separation(){
     cells.clear();
@@ -603,7 +601,7 @@ const ENGINE = (() => {
 
         if (mode === 'show' && d.lastDist > 40 && finalDist < 8 && !d.park && !d.landing && Math.random() < .12) d.spark = Math.max(d.spark, .22);
         d.lastDist = finalDist;
-        holding = mode === 'show' && show && show.formed && !d.park && !d.landing && c.done && finalDist < 12;
+        holding = mode === 'show' && show && !d.park && !d.landing && c.done && finalDist < 12;
 
         /* touch down */
         if (d.landing && c.done && finalDist < 3){

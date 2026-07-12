@@ -1,51 +1,80 @@
 <svg width="200" height="200" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <radialGradient id="bg" cx="50%" cy="42%" r="70%">
-      <stop offset="0%" stop-color="#0d1330"/>
+    <radialGradient id="bg" cx="50%" cy="40%" r="72%">
+      <stop offset="0%" stop-color="#0c1230"/>
       <stop offset="100%" stop-color="#04060d"/>
     </radialGradient>
-    <filter id="glow" x="-80%" y="-80%" width="260%" height="260%">
-      <feGaussianBlur stdDeviation="3.2" result="b"/>
-      <feMerge>
-        <feMergeNode in="b"/><feMergeNode in="SourceGraphic"/>
-      </feMerge>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#55628c"/>
+      <stop offset="35%" stop-color="#39445f"/>
+      <stop offset="100%" stop-color="#232c42"/>
+    </linearGradient>
+    <linearGradient id="arm" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#465072"/>
+      <stop offset="100%" stop-color="#2b3450"/>
+    </linearGradient>
+    <filter id="glow" x="-90%" y="-90%" width="280%" height="280%">
+      <feGaussianBlur stdDeviation="2.6" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
-    <filter id="softglow" x="-120%" y="-120%" width="340%" height="340%">
-      <feGaussianBlur stdDeviation="6" result="b"/>
-      <feMerge>
-        <feMergeNode in="b"/><feMergeNode in="SourceGraphic"/>
-      </feMerge>
+    <filter id="soft" x="-130%" y="-130%" width="360%" height="360%">
+      <feGaussianBlur stdDeviation="5.5" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
   </defs>
 
   <rect width="200" height="200" rx="28" fill="url(#bg)"/>
 
+  <!-- spin-blur rings -->
+  <g fill="none" stroke="#6d7ba3" stroke-width="2" opacity=".38">
+    <circle cx="52" cy="52" r="26"/>
+    <circle cx="148" cy="52" r="26"/>
+    <circle cx="52" cy="148" r="26"/>
+    <circle cx="148" cy="148" r="26"/>
+  </g>
+
   <!-- arms -->
-  <g stroke="#3d4763" stroke-width="4" stroke-linecap="round">
-    <line x1="62" y1="62" x2="138" y2="138"/>
-    <line x1="138" y1="62" x2="62" y2="138"/>
+  <g stroke="url(#arm)" stroke-width="9" stroke-linecap="round">
+    <line x1="78" y1="78" x2="55" y2="55"/>
+    <line x1="122" y1="78" x2="145" y2="55"/>
+    <line x1="78" y1="122" x2="55" y2="145"/>
+    <line x1="122" y1="122" x2="145" y2="145"/>
   </g>
 
-  <!-- rotor discs -->
-  <g fill="none" stroke="#5d6b8f" stroke-width="3" opacity=".85">
-    <circle cx="54" cy="54" r="22"/>
-    <circle cx="146" cy="54" r="22"/>
-    <circle cx="54" cy="146" r="22"/>
-    <circle cx="146" cy="146" r="22"/>
+  <!-- motor pods -->
+  <g fill="#1c2438" stroke="#5a6488" stroke-width="2">
+    <circle cx="52" cy="52" r="8"/>
+    <circle cx="148" cy="52" r="8"/>
+    <circle cx="52" cy="148" r="8"/>
+    <circle cx="148" cy="148" r="8"/>
   </g>
 
-  <!-- rotor hub lights -->
-  <g filter="url(#glow)">
-    <circle cx="54" cy="54" r="4" fill="#9fd8ff"/>
-    <circle cx="146" cy="54" r="4" fill="#ffd9a0"/>
-    <circle cx="54" cy="146" r="4" fill="#ff9de2"/>
-    <circle cx="146" cy="146" r="4" fill="#8affd4"/>
+  <!-- propeller blades -->
+  <g fill="#8e9cc8" opacity=".92">
+    <ellipse cx="52" cy="52" rx="24" ry="4.6" transform="rotate(24 52 52)"/>
+    <ellipse cx="148" cy="52" rx="24" ry="4.6" transform="rotate(-24 148 52)"/>
+    <ellipse cx="52" cy="148" rx="24" ry="4.6" transform="rotate(-24 52 148)"/>
+    <ellipse cx="148" cy="148" rx="24" ry="4.6" transform="rotate(24 148 148)"/>
+  </g>
+  <g fill="#232c42">
+    <circle cx="52" cy="52" r="3.4"/>
+    <circle cx="148" cy="52" r="3.4"/>
+    <circle cx="52" cy="148" r="3.4"/>
+    <circle cx="148" cy="148" r="3.4"/>
   </g>
 
-  <!-- body -->
-  <rect x="86" y="86" width="28" height="28" rx="7" fill="#2e3852"/>
-  <rect x="86" y="86" width="28" height="9" rx="4.5" fill="#4d5a7e"/>
+  <!-- fuselage -->
+  <rect x="78" y="74" width="44" height="52" rx="16" fill="url(#body)"/>
+  <!-- canopy stripe -->
+  <rect x="86" y="80" width="28" height="9" rx="4.5" fill="#7f8db8" opacity=".85"/>
+  <!-- camera gimbal at the nose -->
+  <circle cx="100" cy="74" r="7.5" fill="#141a2c" stroke="#5a6488" stroke-width="2"/>
+  <circle cx="100" cy="74" r="3" fill="#9fd8ff" filter="url(#glow)"/>
 
-  <!-- belly light -->
-  <circle cx="100" cy="107" r="6.5" fill="#ffe66d" filter="url(#softglow)"/>
+  <!-- nav lights: red port, green starboard -->
+  <circle cx="60" cy="60" r="3" fill="#ff5d5d" filter="url(#glow)"/>
+  <circle cx="140" cy="60" r="3" fill="#59ffa2" filter="url(#glow)"/>
+
+  <!-- show LED under the belly -->
+  <circle cx="100" cy="116" r="6" fill="#ffe66d" filter="url(#soft)"/>
 </svg>
