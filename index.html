@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DRONE·I·FY — type a scenario, launch a drone show</title>
+<meta name="description" content="Describe any scenario in plain words and watch a custom drone light show fly it: hundreds of glowing drones forming, morphing, and exploding through your scenes.">
+<meta property="og:title" content="DRONE·I·FY">
+<meta property="og:description" content="Type a scenario. Launch a drone show.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%23060913'/%3E%3Ccircle cx='32' cy='24' r='5' fill='%23ffb547'/%3E%3Ccircle cx='18' cy='38' r='4' fill='%239fd8ff'/%3E%3Ccircle cx='46' cy='38' r='4' fill='%239fd8ff'/%3E%3Ccircle cx='32' cy='48' r='3' fill='%23ffd9a0'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,200..800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<canvas id="sky" aria-label="drone show canvas"></canvas>
+<div class="horizon" aria-hidden="true"></div>
+<div class="grain" aria-hidden="true"></div>
+<div class="vignette" aria-hidden="true"></div>
+
+
+<!-- landing console -->
+<main class="console" id="console">
+  <video class="home-reel" id="home-reel" muted loop autoplay playsinline
+    poster="assets/color-water-poster.jpg" src="assets/color-water.mp4"></video>
+  <h1 class="brand">DRONE<span>·</span>I<span>·</span>FY</h1>
+  <p class="tag">type a scenario. launch a drone show.</p>
+
+  <form id="launch-form" autocomplete="off">
+    <div class="pad">
+      <textarea id="scenario" rows="2" maxlength="400" spellcheck="false"
+        placeholder="a rocket launches through a ring of fire, orbits a spinning planet, and explodes into a red heart over the city"></textarea>
+      <button type="submit" class="launch" id="launch-btn">
+        <span class="launch-word">LAUNCH</span>
+      </button>
+    </div>
+  </form>
+
+  <section class="tryout" aria-label="try it out">
+    <div class="tryout-head">
+      <p class="tryout-kicker">TRY IT OUT</p>
+      <p class="tryout-copy">tap a sample prompt, then remix it</p>
+    </div>
+    <div class="chips" id="chips">
+      <button class="chip">a dragon circles a castle and breathes fire</button>
+      <button class="chip">a 3d football spins through a ring of light</button>
+      <button class="chip">usa wins the world cup and the sky celebrates</button>
+      <button class="chip">an openai emblem turns like a geometric knot</button>
+      <button class="chip">a claude symbol glows as an amber burst</button>
+      <button class="chip">a whale swims across the moon and dives into a star</button>
+      <button class="chip">two hearts orbit each other and shatter into golden fireworks</button>
+      <button class="chip surprise" id="surprise">✦ surprise me</button>
+    </div>
+  </section>
+
+  <p class="foot">any scenario works — nouns become formations, verbs become flight, celebrations get their fireworks<br>
+    a <a href="https://www.sayantan.sh">sayantan.sh</a> product</p>
+</main>
+
+<!-- planning interstitial: a reel moment while Claude choreographs -->
+<div class="planning" id="planning" hidden>
+  <video id="planning-reel" muted loop playsinline preload="none"
+    poster="assets/nebula-poster.jpg" src="assets/nebula.mp4"></video>
+  <div class="planning-copy">
+    <p class="planning-title">PLANNING FLIGHT PATH</p>
+    <p class="planning-sub">choreographing your fleet</p>
+    <div class="planning-bar"><i></i></div>
+    <p class="planning-think" id="planning-think"></p>
+  </div>
+</div>
+
+<!-- during-show chrome -->
+<div class="subtitle" id="subtitle" hidden></div>
+<div class="waypoints" id="waypoints" hidden></div>
+<div class="showbar" id="showbar" hidden>
+  <button id="pause-btn" title="pause / resume">⏸</button>
+  <button id="replay-btn" title="replay show">↺</button>
+  <button id="share-btn" title="copy show link">⧉ SHARE</button>
+  <button id="new-btn" title="new scenario">✎ NEW SHOW</button>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script src="js/stage.bundle.js"></script>
+<script src="js/shapes.js"></script>
+<script src="js/compiler.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/ui.js"></script>
+</body>
+</html>

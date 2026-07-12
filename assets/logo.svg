@@ -1,0 +1,51 @@
+<svg width="200" height="200" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="42%" r="70%">
+      <stop offset="0%" stop-color="#0d1330"/>
+      <stop offset="100%" stop-color="#04060d"/>
+    </radialGradient>
+    <filter id="glow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="3.2" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/><feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="softglow" x="-120%" y="-120%" width="340%" height="340%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/><feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="200" height="200" rx="28" fill="url(#bg)"/>
+
+  <!-- arms -->
+  <g stroke="#3d4763" stroke-width="4" stroke-linecap="round">
+    <line x1="62" y1="62" x2="138" y2="138"/>
+    <line x1="138" y1="62" x2="62" y2="138"/>
+  </g>
+
+  <!-- rotor discs -->
+  <g fill="none" stroke="#5d6b8f" stroke-width="3" opacity=".85">
+    <circle cx="54" cy="54" r="22"/>
+    <circle cx="146" cy="54" r="22"/>
+    <circle cx="54" cy="146" r="22"/>
+    <circle cx="146" cy="146" r="22"/>
+  </g>
+
+  <!-- rotor hub lights -->
+  <g filter="url(#glow)">
+    <circle cx="54" cy="54" r="4" fill="#9fd8ff"/>
+    <circle cx="146" cy="54" r="4" fill="#ffd9a0"/>
+    <circle cx="54" cy="146" r="4" fill="#ff9de2"/>
+    <circle cx="146" cy="146" r="4" fill="#8affd4"/>
+  </g>
+
+  <!-- body -->
+  <rect x="86" y="86" width="28" height="28" rx="7" fill="#2e3852"/>
+  <rect x="86" y="86" width="28" height="9" rx="4.5" fill="#4d5a7e"/>
+
+  <!-- belly light -->
+  <circle cx="100" cy="107" r="6.5" fill="#ffe66d" filter="url(#softglow)"/>
+</svg>

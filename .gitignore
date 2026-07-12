@@ -1,0 +1,9 @@
+.DS_Store
+.gstack/
+node_modules/
+test.html
+.env
+.vercel/
+shot.html
+shot-live.html
+shot-ball.html
