@@ -1,4 +1,4 @@
-/* ── DRONE·I·FY planner: Claude writes FLIGHTSCRIPT, the runtime flies it ──
+/* ── DRONE·I·FY planner: the LLM agent writes FLIGHTSCRIPT, the runtime flies it ──
    POST { scenario }  →  NDJSON stream:
      {"t":"think","text":"…"}   summarized choreographer reasoning, live
      {"t":"plan","plan":{…}}    the finished flight program
@@ -8,6 +8,7 @@
    this endpoint is missing or errors. */
 
 import Anthropic from '@anthropic-ai/sdk';
+import { matchKB, kbPromptBlock } from '../data/visual-kb.mjs';
 
 const MOTION_SCHEMA = {
   type: 'object',
@@ -70,7 +71,7 @@ const SHOW_SCHEMA = {
         required: ['caption', 'duration', 'enter', 'groups'],
         properties: {
           caption: { type: 'string', description: 'subtitle line while the act flies: 2-6 words, lowercase, concrete, and visibly true of the sky image. describe the subject/action on screen, not mood or backstory.' },
-          duration: { type: 'integer', description: 'how long the finished image HOLDS, in ms (5000-14000) — morphing time is added automatically by the physics' },
+          duration: { type: 'integer', description: 'how long the finished image HOLDS, in ms (8000-16000) — audiences need time to read the sky; morphing time is added automatically by the physics' },
           enter: { type: 'string', enum: ['launch', 'explode', 'rain', 'swirl', 'drift', 'bloom'] },
           fx: { type: 'string', enum: ['fireworks', 'embers', 'twinkle', 'pyro', 'none'], description: 'pyro: drones fire spark streams off the formation — spectacular for anthems and finales' },
           groups: { type: 'array', items: GROUP_SCHEMA, description: '1-3 simultaneous formations sharing the fleet. prefer 1 or 2; use 3 only when composition truly needs it.' },
@@ -107,7 +108,7 @@ Common subject cheat-sheet:
 - top brand logos in general: use the iconic mark people recognize first; if the mark depends on text, translate it into a symbolic composition instead
 - romance / love prompts: prefer hearts, rings, moons, paired figures, fireworks. Use flowers only when the user explicitly asks for flowers or roses
 
-CHARACTER CREATION is your signature move. Any hero, creature, prop, machine — anything an emoji cannot do justice — draw it in "art" on a 100x100 sketchpad (integer coords, y down, like SVG) THE WAY A REAL DRONE SHOW DOES: a body is SOLID COLOR-BLOCKED MASS, never a line drawing. Every body part is its own 'fill' — a closed polygon of 4-12 vertices the fleet packs solid with drones: helmet, face, chest armor, skirt, each arm, each leg, boots. Think flat vector illustration / paper-craft poster: bold shapes, thick limbs drawn as quads with real width — A STICK FIGURE IS A FAILURE. Costume-design each part's saturated #rrggbb; neighboring parts get clearly different colors so the figure reads part by part from a mile away. Use 'stroke' ONLY for genuinely thin elements — a katana blade, a spear, a crest plume, a bowstring (strokes render as continuous light-wire). Proportion like a figure study: head about 1/6 of total height, shoulders wider than hips. 8-16 parts total. SCULPT, don't draw: give every part a depth (torso thick, props thin) and layer overlapping parts with lift (weapon in front, cape behind) — the figure is a floating sculpture that slowly turns, not a poster. Use fills sparingly as color-block accents (a sash, an eye, a blazing core). Costume-design every element's #rrggbb, saturated and luminous — never ink-dark hexes (#000-#444), drones are lights and cannot fly darkness. Give the figure one exaggerated pose cue that reads from a distance: sword raised, wings spread, leg mid-stride. To ANIMATE, redraw the same figure in the next act with the pose evolved LIKE A KEYFRAME: whole limbs and props travel (an arm swings 90 degrees, a stride fully swaps, a blade goes sheathed-to-overhead) — micro-shifts read as jitter. Keep the body anchored in place so the morph reads as movement, not teleport. Keep "art" strokes for long smooth curves (a sun's ray, a river, a rainbow arc) and art fills for big geometric color blocks; ascii owns every body and face.
+CHARACTER CREATION is your signature move. Any hero, creature, prop, machine — anything an emoji cannot do justice — draw it in "art" on a 100x100 sketchpad (integer coords, y down, like SVG) THE WAY A REAL DRONE SHOW DOES: a body is SOLID COLOR-BLOCKED MASS, never a line drawing. Every body part is its own 'fill' — a closed polygon of 4-12 vertices the fleet packs solid with drones: helmet, face, chest armor, skirt, each arm, each leg, boots. Think flat vector illustration / paper-craft poster: bold shapes, thick limbs drawn as quads with real width — A STICK FIGURE IS A FAILURE. Costume-design each part's saturated #rrggbb; neighboring parts get clearly different colors so the figure reads part by part from a mile away. Use 'stroke' ONLY for genuinely thin elements — a katana blade, a spear, a crest plume, a bowstring (strokes render as continuous light-wire). Proportion like a figure study: head about 1/6 of total height, shoulders wider than hips. 8-16 parts total. Reference quality bar — a samurai built this way (copy the CRAFT, not the subject): [{"mode":"fill","pts":[[38,16],[34,24],[38,29],[62,29],[66,24],[62,16],[50,12]],"color":"#c03028","depth":12},{"mode":"stroke","pts":[[44,14],[50,2],[56,14]],"color":"#ffcf5e","depth":2,"lift":3},{"mode":"fill","pts":[[42,29],[58,29],[57,38],[43,38]],"color":"#f6c8a0","depth":10},{"mode":"fill","pts":[[36,38],[64,38],[66,58],[34,58]],"color":"#d03028","depth":18},{"mode":"fill","pts":[[60,42],[74,34],[77,40],[64,50]],"color":"#d03028","depth":10,"lift":4},{"mode":"fill","pts":[[34,58],[66,58],[70,76],[30,76]],"color":"#8e1f1f","depth":14},{"mode":"fill","pts":[[38,76],[46,76],[45,95],[37,95]],"color":"#6e2424","depth":8},{"mode":"fill","pts":[[54,76],[62,76],[63,95],[55,95]],"color":"#6e2424","depth":8},{"mode":"stroke","pts":[[76,38],[96,8]],"color":"#eef4ff","lift":8,"weight":1.6}]. SCULPT, don't draw: give every part a depth (torso thick, props thin) and layer overlapping parts with lift (weapon in front, cape behind) — the figure is a floating sculpture that slowly turns, not a poster. Use fills sparingly as color-block accents (a sash, an eye, a blazing core). Costume-design every element's #rrggbb, saturated and luminous — never ink-dark hexes (#000-#444), drones are lights and cannot fly darkness. Give the figure one exaggerated pose cue that reads from a distance: sword raised, wings spread, leg mid-stride. To ANIMATE, redraw the same figure in the next act with the pose evolved LIKE A KEYFRAME: whole limbs and props travel (an arm swings 90 degrees, a stride fully swaps, a blade goes sheathed-to-overhead) — micro-shifts read as jitter. Keep the body anchored in place so the morph reads as movement, not teleport. Keep "art" strokes for long smooth curves (a sun's ray, a river, a rainbow arc) and art fills for big geometric color blocks; ascii owns every body and face.
 
 The classic hero shot works beautifully: a luminous figure in front of a giant single-color disc (rising sun, full moon — shape "sphere", fill "solid"). Make the backdrop deep and rich, the figure brighter than it.
 
@@ -127,7 +128,24 @@ Before finalizing, run this checklist silently:
 3. Are the colors deliberate and clearly different across acts?
 4. Did I use groups to compose one strong image instead of splitting one idea into multiple weak acts?
 
-The simple recipe: act 1 = the subject itself, big and unmistakable; middle act (optional) = the subject in action; final act = the payoff image with fireworks or pyro. Hold each image long.`;
+The simple recipe: act 1 = the subject itself, big and unmistakable; middle act (optional) = the subject in action; final act = the payoff image with fireworks or pyro. Hold each image long.
+
+Some scenarios arrive with a VISUAL REFERENCE block — curated world knowledge of what the subject actually looks like. It is ground truth: it overrides your own memory of the subject's anatomy, costume, colors, and pose.
+
+BROADCAST REALISM — this is a professional show, not a cartoon:
+- Palettes are disciplined: one or two hues per act plus a single accent. "rainbow" only when the scenario explicitly celebrates (pride, carnival, "rainbow").
+- Emoji glyphs are a last resort. Flags fly as emoji (they are genuinely excellent); every other subject prefers a VISUAL REFERENCE wireframe, custom art, a 3D solid, or clean geometry. A cartoon glyph in the sky reads childish from a mile away.
+- Scale generously and hold long: one huge, unmistakable image beats two small ones. Audiences need 8+ seconds to read the sky.
+- Motion is majestic, never busy: one deliberate motion per group at most, slow speeds, and stillness is a valid artistic choice for monuments.`;
+
+/* second pass: the show director reviews the draft before launch */
+const DIRECTOR_SYSTEM = `You are the show director for DRONE·I·FY, reviewing a draft FLIGHTSCRIPT minutes before a professional 600-drone show. Your only job is realism and legibility. Fix ONLY these defect classes, changing nothing that already works:
+1. Geometry that contradicts the VISUAL REFERENCE (anatomy, proportions, costume colors, pose).
+2. Childish choices: rainbow without an explicit celebration, emoji glyphs where a wireframe / 3D solid / clean geometry serves better (flags stay emoji), clashing or muddy palettes — enforce one or two hues per act plus one accent.
+3. Acts that fail the freeze-frame test (not instantly recognizable as the scenario's subject) — replace them with a stronger image of the same subject, never with mood filler.
+4. Holds under 8000ms — lengthen them.
+5. Dead-static acts with no motion, or busy acts with too much — one deliberate motion per group.
+Return the complete corrected FLIGHTSCRIPT. If the draft is already strong, return it with only minimal touch-ups.`;
 
 const client = new Anthropic();
 
@@ -145,20 +163,25 @@ export default async function handler(req, res) {
   res.setHeader('content-type', 'application/x-ndjson');
   res.setHeader('cache-control', 'no-store');
 
+  /* world knowledge: inject matched visual reference entries into the request */
+  const kbBlock = kbPromptBlock(matchKB(scenario));
+
   try {
     const stream = client.messages.stream({
       model: process.env.DRONIFY_MODEL || 'claude-sonnet-5',
-      max_tokens: 16384,
+      /* plans with several custom-art figures + adaptive thinking easily pass
+         16k tokens — a short cap truncates the JSON mid-stream */
+      max_tokens: 32768,
       thinking: { type: 'adaptive', display: 'summarized' },
       output_config: {
-        effort: 'medium',
+        effort: 'high',
         format: { type: 'json_schema', schema: SHOW_SCHEMA },
       },
       system: SYSTEM,
       messages: [{
         role: 'user',
         content: `Scenario: ${scenario}
-
+${kbBlock ? `\n${kbBlock}\n` : ''}
 Return one tight drone show plan. Keep it iconic, literal, and visually coherent.`,
       }],
     });
@@ -175,13 +198,72 @@ Return one tight drone show plan. Keep it iconic, literal, and visually coherent
       res.end();
       return;
     }
+    if (message.stop_reason === 'max_tokens') {
+      console.error('planner error: plan truncated at max_tokens');
+      res.write(JSON.stringify({ t: 'error', error: 'plan truncated' }) + '\n');
+      res.end();
+      return;
+    }
     const text = message.content.find((b) => b.type === 'text');
     if (!text) {
       res.write(JSON.stringify({ t: 'error', error: 'no plan' }) + '\n');
       res.end();
       return;
     }
-    res.write(JSON.stringify({ t: 'plan', plan: JSON.parse(text.text) }) + '\n');
+    let plan = JSON.parse(text.text);
+
+    /* compose → critique → refine: the director pass polishes realism.
+       Optional (DRONIFY_REFINE=0 disables) and never fatal — a failed
+       review ships the draft. KB-grounded drafts that already play by the
+       broadcast rules skip review: they don't need it, and the audience is
+       waiting. */
+    const planStr = JSON.stringify(plan);
+    const emojiGroups = (planStr.match(/"emoji:/g) || []).length;
+    const flagGroups = (planStr.match(/"emoji:\p{Regional_Indicator}/gu) || []).length;
+    const needsReview = !kbBlock
+      || planStr.includes('"rainbow"')
+      || emojiGroups > flagGroups
+      || plan.acts.some((a) => a.duration < 8000);
+    if (process.env.DRONIFY_REFINE !== '0' && needsReview) {
+      let heartbeat = 0;
+      try {
+        res.write(JSON.stringify({ t: 'think', text: '\n\nDirector review — checking anatomy against reference, tightening palettes, freeze-framing every act…\n' }) + '\n');
+        /* the review emits no visible stream — pulse the console so the
+           client watchdog and the audience both know we are alive */
+        heartbeat = setInterval(() => {
+          try { res.write(JSON.stringify({ t: 'think', text: '·' }) + '\n'); } catch (e) { /* closed */ }
+        }, 4000);
+        const reviewStream = client.messages.stream({
+          model: process.env.DRONIFY_MODEL || 'claude-sonnet-5',
+          max_tokens: 24576,
+          output_config: {
+            effort: 'medium',
+            format: { type: 'json_schema', schema: SHOW_SCHEMA },
+          },
+          system: DIRECTOR_SYSTEM,
+          messages: [{
+            role: 'user',
+            content: `Scenario: ${scenario}
+${kbBlock ? `\n${kbBlock}\n` : ''}
+Draft FLIGHTSCRIPT:
+${JSON.stringify(plan)}
+
+Return the corrected FLIGHTSCRIPT.`,
+          }],
+        });
+        const review = await reviewStream.finalMessage();
+        if (review.stop_reason !== 'refusal' && review.stop_reason !== 'max_tokens') {
+          const rt = review.content.find((b) => b.type === 'text');
+          if (rt) plan = JSON.parse(rt.text);
+        }
+      } catch (err) {
+        console.error('director pass skipped:', (err && err.message) || err);
+      } finally {
+        if (heartbeat) clearInterval(heartbeat);
+      }
+    }
+
+    res.write(JSON.stringify({ t: 'plan', plan }) + '\n');
     res.end();
   } catch (err) {
     console.error('planner error:', (err && err.message) || err);

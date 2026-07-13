@@ -57,5 +57,5 @@ createServer((req, res) => {
   });
 }).listen(PORT, HOST, () => {
   console.log(`DRONE·I·FY dev server → http://${HOST}:${PORT}` +
-    (process.env.ANTHROPIC_API_KEY ? '  (Claude planner ON)' : '  (no key: onboard planner)'));
+    (process.env.ANTHROPIC_API_KEY ? '  (LLM planner ON)' : '  (no key: planner offline)'));
 });
