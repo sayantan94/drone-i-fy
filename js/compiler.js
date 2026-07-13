@@ -1,5 +1,5 @@
 /* ── DRONE·I·FY onboard planner: plain words → a FLIGHTSCRIPT program ──
-   The instant, offline choreographer. Same DSL as the Claude planner:
+   The instant, offline choreographer. Same DSL as the LLM planner:
    acts of formation groups with motions. No text in the sky — nouns
    become shapes, verbs become entrances and motions, colors tint. */
 'use strict';
@@ -251,13 +251,14 @@ const COMPILER = (() => {
 
   const SURPRISES = [
     'a lone archer fires a burning arrow across the moon',
-    'a phoenix rises from embers and spreads its wings over the city',
-    'a ballerina spins as roses rain onto the city',
+    'a dragon circles a castle and breathes fire',
+    'ronaldo scores and does the siu',
     'a boxer raises the championship belt under golden fireworks',
-    'india wins the cricket world cup',
-    'a rocket launches through a ring and orbits a spinning planet',
-    'a comet crosses the moon, curls into a sphere, and bursts into golden fireworks',
-    'two hearts orbit each other, merge into a sphere, and shatter into golden fireworks',
+    'a rocket launches through a ring and lands on the moon',
+    'a wolf howls at a giant full moon',
+    'usain bolt strikes the lightning pose at the finish line',
+    'the eiffel tower sparkles at midnight',
+    'a robot dances under a full moon',
   ];
 
   return { compile, SURPRISES };

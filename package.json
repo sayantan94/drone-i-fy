@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Type a scenario. Launch a drone show. Claude plans the show schema; a canvas animator flies it.",
+  "description": "Type a scenario. Launch a drone show. An LLM agent plans the show schema; a canvas animator flies it.",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.74.0",
+    "@anthropic-ai/sdk": "^0.111.0",
     "three": "^0.185.1"
   },
   "devDependencies": {

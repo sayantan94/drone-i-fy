@@ -23,6 +23,7 @@
 
 <!-- landing console -->
 <main class="console" id="console">
+  <div class="aurora" aria-hidden="true"></div>
   <video class="home-reel" id="home-reel" muted loop autoplay playsinline
     poster="assets/color-water-poster.jpg" src="assets/color-water.mp4"></video>
   <h1 class="brand">DRONE<span>·</span>I<span>·</span>FY</h1>
@@ -45,10 +46,10 @@
     </div>
     <div class="chips" id="chips">
       <button class="chip">a lone samurai draws his katana as the red sun rises</button>
-      <button class="chip">india wins the cricket world cup</button>
-      <button class="chip">usa wins the world cup and the sky celebrates</button>
-      <button class="chip">a 3d football spins through a ring of light</button>
-      <button class="chip">two hearts orbit each other and shatter into golden fireworks</button>
+      <button class="chip">messi lifts the world cup and the sky celebrates</button>
+      <button class="chip">elon musk vs sam altman</button>
+      <button class="chip">anthropic vs openai</button>
+      <button class="chip">a phoenix rises from embers and spreads its wings over the city</button>
       <button class="chip surprise" id="surprise">✦ surprise me</button>
     </div>
   </section>
@@ -57,15 +58,22 @@
     a <a href="https://www.sayantan.sh">sayantan.sh</a> product</p>
 </main>
 
-<!-- planning interstitial: a reel moment while Claude choreographs -->
+<!-- planning interstitial: the choreographer's console — live reasoning, then the flight plan -->
 <div class="planning" id="planning" hidden>
-  <video id="planning-reel" muted loop playsinline preload="none"
-    poster="assets/nebula-poster.jpg" src="assets/nebula.mp4"></video>
+  <div class="hud-grid" aria-hidden="true"></div>
+  <div class="hud-scan" aria-hidden="true"></div>
+  <div class="hud-frame" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+  <div class="hud-rail hud-rail-l" id="hud-rail-l" aria-hidden="true"></div>
+  <div class="hud-rail hud-rail-r" id="hud-rail-r" aria-hidden="true"></div>
+  <div class="hud-radar" aria-hidden="true"></div>
   <div class="planning-copy">
-    <p class="planning-title">PLANNING FLIGHT PATH</p>
-    <p class="planning-sub">choreographing your fleet</p>
+    <div class="planning-orbit" aria-hidden="true"><i></i><i></i><i></i></div>
+    <p class="planning-eyebrow" id="planning-eyebrow">MISSION CONTROL · CHOREOGRAPHY ENGINE ONLINE</p>
+    <p class="planning-title" id="planning-title">PLANNING FLIGHT PATH</p>
+    <p class="planning-sub" id="planning-sub">choreographing your fleet</p>
     <div class="planning-bar"><i></i></div>
-    <p class="planning-think" id="planning-think"></p>
+    <div class="planning-log" id="planning-log" aria-live="polite"></div>
+    <ol class="planning-plan" id="planning-plan" hidden></ol>
   </div>
 </div>
 
@@ -75,7 +83,6 @@
 <div class="showbar" id="showbar" hidden>
   <button id="pause-btn" title="pause / resume">⏸</button>
   <button id="replay-btn" title="replay show">↺</button>
-  <button id="share-btn" title="copy show link">⧉ SHARE</button>
   <button id="new-btn" title="new scenario">✎ NEW SHOW</button>
 </div>
 <div class="toast" id="toast" hidden></div>

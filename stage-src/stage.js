@@ -358,7 +358,8 @@ const STAGE = (() => {
 
     composer = new EffectComposer(renderer);
     composer.addPass(new RenderPass(scene, camera));
-    bloom = new UnrealBloomPass(undefined, 1.0, .45, .1);
+    /* tight bloom: crisp LED cores with a real glare falloff — heavy wash reads childish */
+    bloom = new UnrealBloomPass(undefined, .82, .33, .16);
     composer.addPass(bloom);
     composer.addPass(new OutputPass());
 
@@ -495,15 +496,15 @@ const STAGE = (() => {
       lightCol[i * 3] = c[0] * glow;
       lightCol[i * 3 + 1] = c[1] * glow;
       lightCol[i * 3 + 2] = c[2] * glow;
-      const crisp = !d.grounded && !d.park && d.lastDist < 10 ? .82 : 1;
-      const wantSize = (d.grounded ? 5 : d.park ? 4.5 : d.si >= 0 ? 6 : 8) * crisp * (.9 + depthCue * .16) * (1 + d.spark * .9);
+      const crisp = !d.grounded && !d.park && d.lastDist < 10 ? .72 : 1;
+      const wantSize = (d.grounded ? 5 : d.park ? 4.5 : d.si >= 0 ? 5.4 : 7.2) * crisp * (.9 + depthCue * .16) * (1 + d.spark * .9);
       const sizeSmooth = Math.min(1, dt * .026);
       d.renderSize = d.renderSize === undefined ? wantSize : d.renderSize + (wantSize - d.renderSize) * sizeSmooth;
       lightSize[i] = d.renderSize;
 
       const hg = glow * (.64 + depthCue * .18);
       haloCol[i * 3] = c[0] * hg; haloCol[i * 3 + 1] = c[1] * hg; haloCol[i * 3 + 2] = c[2] * hg;
-      const wantHalo = (d.grounded ? 8 : d.si >= 0 ? 8.3 : 15.5) * (.88 + depthCue * .12);
+      const wantHalo = (d.grounded ? 8 : d.si >= 0 ? 7.6 : 13) * (.88 + depthCue * .12);
       d.renderHalo = d.renderHalo === undefined ? wantHalo : d.renderHalo + (wantHalo - d.renderHalo) * sizeSmooth;
       haloSize[i] = d.renderHalo;
 

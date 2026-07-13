@@ -21,7 +21,8 @@ over a night city: liftoff from the launch pad, scene after scene in the sky, an
 - **Real drone shows, faithfully** — the fleet waits on the pad with breathing standby lights, lifts off in waves, morphs deliberately between scenes, holds each image until it has fully formed, and returns to land.
 - **True flight physics** — speed and thrust limits, synchronized formation moves, gusts of wind, and drones that hold station like the real thing. Every aircraft is visible: rotors, body, belly light.
 - **Rich imagery** — glowing wireframe contours, full-color pixel-painted pictures (flags wave in their true colors), rotating 3D solids, pyrotechnics pouring off formations.
-- **Every show is a link** — hit SHARE and send it; the show replays for anyone who opens it.
+- **Every show is a link** — the URL carries the scenario; copy it and the show replays for anyone who opens it.
+- **World knowledge built in** — a curated visual knowledge base (`data/visual-kb.mjs`) teaches the choreographer what celebrities, characters, creatures, landmarks, vehicles, and logos actually look like, with verified wireframes for the flagship subjects.
 
 ## Run it
 

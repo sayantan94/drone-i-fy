@@ -1,6 +1,6 @@
 /* ── DRONE·I·FY engine: the FLIGHTSCRIPT runtime ──
    Executes a flight program: acts of simultaneous formation groups with
-   motion modifiers. The planner (Claude or the onboard compiler) writes
+   motion modifiers. The planner (the LLM agent or the onboard compiler) writes
    the program; this file flies it like a real show —
    fleet parked on the pad → staggered takeoff → formations → landing —
    with true drone physics: thrust and speed limits, arrival braking,
@@ -339,7 +339,7 @@ const ENGINE = (() => {
     if (d.gi < 0) d.si = -1;
     const dist = Math.hypot(d.tx - d.x, d.ty - d.y);
     d.sx = d.x; d.sy = d.y;
-    d.pt = engineNow + (wave01 || 0) * 900 + Math.random() * 160;   /* ripple departure */
+    d.pt = engineNow + (wave01 || 0) * 1350 + Math.random() * 220;  /* ripple departure — a visible sweeping wave, like a real fleet */
     d.pT = Math.max(2200, Math.min(11000, dist / (MAX_SPEED * .8)));
     d.arc = arcSign * (.12 + Math.random() * .06) * (arcScale === undefined ? 1 : arcScale);
     d.delay = 0;
@@ -601,7 +601,7 @@ const ENGINE = (() => {
 
         if (mode === 'show' && d.lastDist > 40 && finalDist < 8 && !d.park && !d.landing && Math.random() < .12) d.spark = Math.max(d.spark, .22);
         d.lastDist = finalDist;
-        holding = mode === 'show' && show && !d.park && !d.landing && c.done && finalDist < 12;
+        holding = mode === 'show' && show && show.formed && !d.park && !d.landing && c.done && finalDist < 12;
 
         /* touch down */
         if (d.landing && c.done && finalDist < 3){
@@ -609,22 +609,23 @@ const ENGINE = (() => {
           d.x = d.tx; d.y = d.ty; d.vx = 0; d.vy = 0;
         }
       }
-      /* turbulence: every light trembles and corrects, never mathematically still */
-      const holdMul = holding ? .22 : 1;
-      d.nx = d.nx * (holding ? .84 : .96) + (Math.random() - .5) * .0016 * holdMul;
-      d.ny = d.ny * (holding ? .84 : .96) + (Math.random() - .5) * .0016 * holdMul;
+      /* turbulence: airborne drones live and breathe — but a LOCKED station is
+         pinned. Real fleets look frozen on hold; wobble reads as amateur hour. */
+      const holdMul = holding ? .06 : 1;
+      d.nx = d.nx * (holding ? .78 : .96) + (Math.random() - .5) * .0016 * holdMul;
+      d.ny = d.ny * (holding ? .78 : .96) + (Math.random() - .5) * .0016 * holdMul;
       d.vx += d.nx * dt * .01; d.vy += d.ny * dt * .01;
-      /* wind + drag (only airborne drones feel it) */
-      d.vx += wx * dt * .01 * (holding ? .16 : 1);
-      d.vy += wy * dt * .01 * (holding ? .16 : 1);
-      const drag = Math.max(0, 1 - DRAG * dt * (holding ? 1.9 : 1));
+      /* wind + drag (station-lock rejects nearly all of it) */
+      d.vx += wx * dt * .01 * (holding ? .04 : 1);
+      d.vy += wy * dt * .01 * (holding ? .04 : 1);
+      const drag = Math.max(0, 1 - DRAG * dt * (holding ? 2.4 : 1));
       d.vx *= drag; d.vy *= drag;
       d.x += d.vx * dt; d.y += d.vy * dt;
       if (holding){
-        const snap = Math.min(.18, dt * .0085);
+        const snap = Math.min(.3, dt * .013);
         d.x += (d.tx - d.x) * snap;
         d.y += (d.ty - d.y) * snap;
-        d.vx *= .72; d.vy *= .72;
+        d.vx *= .58; d.vy *= .58;
       }
       d.phase += dt * .0022;
       d.z += (d.tz - d.z) * Math.min(1, dt * (holding ? .0032 : .0012));

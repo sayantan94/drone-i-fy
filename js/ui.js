@@ -1,5 +1,5 @@
 /* ── DRONE·I·FY ui: planner → normalizer → FLIGHTSCRIPT runtime ──
-   The planner is Claude (/api/plan) when deployed, the onboard compiler
+   The planner is an LLM agent (/api/plan) when deployed, the onboard compiler
    when local or offline. Both emit the same FLIGHTSCRIPT program;
    normalize() clamps everything to the runtime's vocabulary, so no
    plan ever breaks the animator. */
@@ -13,7 +13,6 @@
   const toast = $('toast');
   const launchBtn = $('launch-btn');
 
-  let planner = 'ONBOARD';
   let currentScenario = '';
 
   /* ── FLIGHTSCRIPT normalizer ── */
@@ -159,7 +158,7 @@
         return {
           caption: String(a.caption || '').slice(0, 90),
           /* no show clock: the choreographer decides; clamp only per-act sanity */
-          duration: num(a.duration, 5000, 16000, 7500),
+          duration: num(a.duration, 7000, 18000, 9500),
           enter: ENTERS.includes(a.enter) ? a.enter : 'drift',
           fx: FXS.includes(a.fx) ? a.fx : null,
           groups,
@@ -169,22 +168,113 @@
     return acts.length ? acts : null;
   }
 
-  /* ── planner: streamed thinking + plan, onboard compiler as fallback ── */
+  /* ── mission-control HUD: live telemetry rails + scramble-decode readouts ── */
+  const HUD = (() => {
+    const GLYPHS = '▚▞▓▒░<>/\\|=+*#10';
+    let timer = 0, t0 = 0;
+
+    const ji = (base, spread) => Math.round(base + (Math.random() - .5) * spread);
+    const ROWS_L = [
+      ['UPLINK',    () => ji(24, 14) + ' MS',                              () => 62 + Math.random() * 24],
+      ['FLEET',     () => '600 UNITS · READY',                             () => 100],
+      ['GRID SYNC', () => (96 + Math.random() * 3.8).toFixed(1) + ' %',    () => 96 + Math.random() * 4],
+      ['WIND',      () => (1.1 + Math.random() * 2.4).toFixed(1) + ' KT',  () => 16 + Math.random() * 22],
+      ['BATTERY',   () => ji(95, 3) + ' %',                                () => 93 + Math.random() * 5],
+    ];
+    const ROWS_R = [
+      ['ALT CEILING', () => '420 M',                                       () => 78],
+      ['GEOFENCE',    () => 'LOCKED',                                      () => 100],
+      ['SAT FIX',     () => ji(16, 3) + ' · RTK',                          () => 84 + Math.random() * 12],
+      ['PAYLOAD',     () => 'LED ARRAY OK',                                () => 90],
+      ['SHOW CLOCK',  () => 'T-' + String(Math.max(0, 90 - ((performance.now() - t0) / 1000 | 0))).padStart(2, '0') + ' S',
+                      () => Math.max(4, 100 - (performance.now() - t0) / 900)],
+    ];
+
+    function build(el, rows){
+      if (!el) return;
+      el.innerHTML = rows.map(r =>
+        `<span class="hr-row">${r[0]}<b>--</b><span class="hr-meter"><i></i></span></span>`).join('');
+    }
+    function tick(){
+      [[ $('hud-rail-l'), ROWS_L ], [ $('hud-rail-r'), ROWS_R ]].forEach(([el, rows]) => {
+        if (!el) return;
+        [...el.children].forEach((row, i) => {
+          row.querySelector('b').textContent = rows[i][1]();
+          row.querySelector('.hr-meter i').style.width = Math.min(100, rows[i][2]()) + '%';
+        });
+      });
+    }
+    function decode(el, text){
+      if (!el) return;
+      const start = performance.now(), D = 640;
+      (function step(){
+        const p = Math.min(1, (performance.now() - start) / D);
+        const keep = Math.round(text.length * p);
+        el.textContent = text.slice(0, keep) +
+          [...text.slice(keep)].map(c => c === ' ' ? ' ' : GLYPHS[Math.random() * GLYPHS.length | 0]).join('');
+        if (p < 1) requestAnimationFrame(step);
+      })();
+    }
+    function start(){
+      t0 = performance.now();
+      build($('hud-rail-l'), ROWS_L);
+      build($('hud-rail-r'), ROWS_R);
+      tick();
+      if (timer) clearInterval(timer);
+      timer = setInterval(tick, 640);
+      decode($('planning-eyebrow'), 'MISSION CONTROL · CHOREOGRAPHY ENGINE ONLINE');
+      decode($('planning-title'), 'PLANNING FLIGHT PATH');
+    }
+    function lock(){
+      decode($('planning-eyebrow'), 'SEQUENCE COMMITTED · ALL STATIONS GO');
+    }
+    function stop(){
+      if (timer) clearInterval(timer);
+      timer = 0;
+    }
+    return { start, lock, stop, decode };
+  })();
+
+  /* ── planner: streamed thinking + plan; failures surface as an error, never a default show ── */
   function showThought(text){
-    const el = $('planning-think');
-    if (!el || !text.trim()) return;
-    thinkBuf = (thinkBuf + text).slice(-600);
-    /* show the latest complete-ish fragment, gently */
-    const clean = thinkBuf.replace(/\s+/g, ' ').trim();
-    el.textContent = clean.slice(-160);
+    const el = $('planning-log');
+    if (!el || !text) return;
+    el.textContent += text;
+    el.scrollTop = el.scrollHeight;
   }
-  let thinkBuf = '';
+
+  /* the whole plan, on the pad before takeoff — the choreographer's manifest */
+  function showFlightPlan(acts){
+    const list = $('planning-plan');
+    if (!list) return Promise.resolve();
+    HUD.decode($('planning-title'), 'FLIGHT PLAN LOCKED');
+    HUD.decode($('planning-sub'), 'fleet ready · standing by to launch');
+    HUD.lock();
+    $('planning-log').classList.add('done');
+    const maxDur = Math.max(...acts.map(a => a.duration));
+    list.innerHTML = acts.map((a, i) => {
+      const meta = [
+        Math.round(a.duration / 1000) + 's',
+        a.enter,
+        a.fx,
+        a.groups.map(g => g.art ? 'custom art' : g.ascii ? 'ascii art' : g.shape.replace('emoji:', '')).join(' + '),
+      ].filter(Boolean).join(' · ');
+      return `<li style="animation-delay:${140 + i * 150}ms;--dur:${Math.round(a.duration / maxDur * 100)}%">` +
+        `<span class="pp-n">[ ${String(i + 1).padStart(2, '0')} ]</span>` +
+        `<span class="pp-cap">${a.caption || 'formation'}</span>` +
+        `<span class="pp-meta">${meta}</span></li>`;
+    }).join('');
+    list.hidden = false;
+    return new Promise(res => setTimeout(res, 3400));
+  }
 
   async function plan(scenario){
-    thinkBuf = '';
     try {
       const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 90000);
+      /* idle watchdog, not a total cap: rich two-figure plans stream for
+         minutes — only true silence means the planner died */
+      let timer = setTimeout(() => ctrl.abort(), 90000);
+      const alive = () => { clearTimeout(timer); timer = setTimeout(() => ctrl.abort(), 90000); };
       const r = await fetch('/api/plan', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -198,6 +288,7 @@
         for (;;){
           const { done, value } = await reader.read();
           if (done) break;
+          alive();
           buf += dec.decode(value, { stream: true });
           const lines = buf.split('\n');
           buf = lines.pop();
@@ -207,6 +298,7 @@
               const msg = JSON.parse(line);
               if (msg.t === 'think') showThought(msg.text);
               if (msg.t === 'plan') planObj = msg.plan;
+              if (msg.t === 'error') console.warn('planner error:', msg.error);
             } catch (e) { /* partial line */ }
           }
         }
@@ -216,12 +308,12 @@
           try { const whole = JSON.parse(buf); planObj = whole.plan || whole; } catch (e) {}
         }
         const acts = normalize(planObj);
-        if (acts){ planner = 'CLAUDE'; return acts; }
+        if (acts) return acts;
       }
       clearTimeout(timer);
-    } catch (e) { /* offline, local, or slow — fall through to onboard */ }
-    planner = 'ONBOARD';
-    return normalize(COMPILER.compile(scenario)) || normalize(COMPILER.compile('a sphere of light'));
+    } catch (e) { console.warn('planner unreachable:', e && e.message); }
+    /* no silent default show — the launch flow surfaces the failure */
+    return null;
   }
 
   /* ── show flow ── */
@@ -231,14 +323,33 @@
     AUDIO.begin();
     launchBtn.disabled = true;
     launchBtn.querySelector('.launch-word').textContent = 'PLANNING…';
-    const planningEl = $('planning'), reel = $('planning-reel');
+    const planningEl = $('planning');
+    $('planning-log').textContent = '';
+    $('planning-log').classList.remove('done');
+    $('planning-plan').hidden = true;
+    $('planning-title').textContent = 'PLANNING FLIGHT PATH';
+    $('planning-sub').textContent = 'choreographing your fleet';
     planningEl.hidden = false;
-    if (reel){ reel.currentTime = 0; reel.play().catch(() => {}); }
+    HUD.start();
 
     const acts = await plan(currentScenario);
 
+    if (!acts){
+      /* no fallback show — say it went wrong and hand the console back */
+      planningEl.hidden = true;
+      HUD.stop();
+      launchBtn.disabled = false;
+      launchBtn.querySelector('.launch-word').textContent = 'LAUNCH';
+      toast.textContent = '⚠ something went wrong while planning your show — please try again';
+      toast.hidden = false;
+      setTimeout(() => { toast.hidden = true; }, 3600);
+      return;
+    }
+
+    await showFlightPlan(acts);
+
     planningEl.hidden = true;
-    if (reel) reel.pause();
+    HUD.stop();
     launchBtn.disabled = false;
     launchBtn.querySelector('.launch-word').textContent = 'LAUNCH';
     consoleEl.classList.add('away');
@@ -278,12 +389,6 @@
     subtitleEl.classList.remove('on');
   }
 
-  function flash(msg){
-    toast.textContent = msg;
-    toast.hidden = false;
-    setTimeout(() => { toast.hidden = true; }, 2200);
-  }
-
   /* ── wiring ── */
   form.addEventListener('submit', (e) => { e.preventDefault(); launch(scenarioEl.value); });
   scenarioEl.addEventListener('keydown', (e) => {
@@ -307,11 +412,6 @@
   });
   $('replay-btn').addEventListener('click', () => { paused = false; $('pause-btn').textContent = '⏸'; launch(currentScenario); });
   $('new-btn').addEventListener('click', backToConsole);
-  $('share-btn').addEventListener('click', async () => {
-    const url = location.origin + location.pathname + '#' + encodeURIComponent(currentScenario);
-    try { await navigator.clipboard.writeText(url); flash('SHOW LINK COPIED — SEND IT'); }
-    catch (e) { flash(url); }
-  });
 
   /* ── boot ── */
   ENGINE.boot();
