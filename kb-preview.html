@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>KB art preview — dev only</title>
+<style>
+  body { background: #060913; color: #cdd6ee; font: 13px/1.4 "IBM Plex Mono", monospace; margin: 20px; }
+  h1 { font-size: 15px; letter-spacing: .2em; color: #ffd75e; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+  .cell { background: #0a0f1f; border: 1px solid #1c2440; border-radius: 10px; padding: 10px; }
+  .cell p { margin: 6px 2px 0; color: #8fa0c8; }
+  canvas { width: 100%; display: block; background: radial-gradient(ellipse at 50% 60%, #0d1530 0%, #060913 70%); border-radius: 6px; }
+</style>
+</head>
+<body>
+<h1>VISUAL KB — art entries through the real fromArt pipeline</h1>
+<div class="grid" id="grid"></div>
+
+<script src="js/shapes.js"></script>
+<script type="module">
+import { KB } from './data/visual-kb.mjs';
+
+const grid = document.getElementById('grid');
+const only = new URLSearchParams(location.search).get('only');
+const wanted = only ? new Set(only.split(',')) : null;
+for (const e of KB){
+  if (!e.art) continue;
+  if (wanted && !wanted.has(e.id)) continue;
+  const cell = document.createElement('div');
+  cell.className = 'cell';
+  const cv = document.createElement('canvas');
+  cv.width = 560; cv.height = 560;
+  cell.appendChild(cv);
+  const label = document.createElement('p');
+  label.textContent = `${e.id} — ${e.art.length} elements`;
+  cell.appendChild(label);
+  grid.appendChild(cell);
+
+  const pts = SHAPES.fromArt(e.art);
+  const ctx = cv.getContext('2d');
+  ctx.globalCompositeOperation = 'lighter';
+  for (const p of pts){
+    const x = (p.x * .44 + .5) * cv.width;
+    const y = (.5 - p.y * .44) * cv.height;
+    const c = p.c || '#f2f4ff';
+    /* soft halo, then a hard bright core — sharp like a real LED */
+    ctx.shadowBlur = 6; ctx.shadowColor = c;
+    ctx.fillStyle = c;
+    ctx.beginPath(); ctx.arc(x, y, 2.1, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#ffffff';
+    ctx.globalAlpha = .5;
+    ctx.beginPath(); ctx.arc(x, y, .8, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+}
+</script>
+</body>
+</html>
