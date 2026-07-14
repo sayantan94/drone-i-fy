@@ -14,6 +14,7 @@
   const launchBtn = $('launch-btn');
 
   let currentScenario = '';
+  let currentActs = null;
 
   /* ── FLIGHTSCRIPT normalizer ── */
   const ENTERS = ['launch', 'explode', 'rain', 'swirl', 'drift', 'bloom'];
@@ -158,7 +159,7 @@
         return {
           caption: String(a.caption || '').slice(0, 90),
           /* no show clock: the choreographer decides; clamp only per-act sanity */
-          duration: num(a.duration, 7000, 18000, 9500),
+          duration: num(a.duration, 5500, 9500, 7000),
           enter: ENTERS.includes(a.enter) ? a.enter : 'drift',
           fx: FXS.includes(a.fx) ? a.fx : null,
           groups,
@@ -172,6 +173,7 @@
   const HUD = (() => {
     const GLYPHS = '▚▞▓▒░<>/\\|=+*#10';
     let timer = 0, t0 = 0;
+    const decodeJobs = new WeakMap();
 
     const ji = (base, spread) => Math.round(base + (Math.random() - .5) * spread);
     const ROWS_L = [
@@ -206,8 +208,11 @@
     }
     function decode(el, text){
       if (!el) return;
+      const job = (decodeJobs.get(el) || 0) + 1;
+      decodeJobs.set(el, job);
       const start = performance.now(), D = 640;
       (function step(){
+        if (decodeJobs.get(el) !== job) return;
         const p = Math.min(1, (performance.now() - start) / D);
         const keep = Math.round(text.length * p);
         el.textContent = text.slice(0, keep) +
@@ -235,12 +240,35 @@
     return { start, lock, stop, decode };
   })();
 
+  /* ── planner failures: name the reason, on the big board ── */
+  let planFailReason = '';
+  const ERROR_COPY = {
+    refused: 'the choreographer declined this scenario — try a different phrasing',
+    'plan truncated': 'the flight plan came back incomplete — launch again',
+    'no plan': 'no flight plan arrived — launch again',
+    'planner unavailable': 'the choreography engine is unreachable — try again in a moment',
+    timeout: 'the choreography engine went quiet — try again',
+  };
+  const errorCopy = () => ERROR_COPY[planFailReason] || ERROR_COPY['planner unavailable'];
+
+  function showPlanError(){
+    const planningEl = $('planning');
+    planningEl.classList.add('error');
+    HUD.decode($('planning-title'), 'FLIGHT PLAN FAILED');
+    HUD.decode($('planning-eyebrow'), 'SEQUENCE ABORTED · ALL STATIONS HOLD');
+    HUD.decode($('planning-sub'), errorCopy());
+    return new Promise(res => setTimeout(res, 4200));
+  }
+
   /* ── planner: streamed thinking + plan; failures surface as an error, never a default show ── */
   function showThought(text){
     const el = $('planning-log');
     if (!el || !text) return;
+    /* follow the stream only while the reader is at the live edge — if they
+       scrolled up to reread, stay put; scrolling back down resumes following */
+    const follow = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
     el.textContent += text;
-    el.scrollTop = el.scrollHeight;
+    if (follow) el.scrollTop = el.scrollHeight;
   }
 
   /* the whole plan, on the pad before takeoff — the choreographer's manifest */
@@ -269,6 +297,7 @@
   }
 
   async function plan(scenario){
+    planFailReason = 'planner unavailable';
     try {
       const ctrl = new AbortController();
       /* idle watchdog, not a total cap: rich two-figure plans stream for
@@ -298,7 +327,7 @@
               const msg = JSON.parse(line);
               if (msg.t === 'think') showThought(msg.text);
               if (msg.t === 'plan') planObj = msg.plan;
-              if (msg.t === 'error') console.warn('planner error:', msg.error);
+              if (msg.t === 'error'){ planFailReason = msg.error; console.warn('planner error:', msg.error); }
             } catch (e) { /* partial line */ }
           }
         }
@@ -309,9 +338,13 @@
         }
         const acts = normalize(planObj);
         if (acts) return acts;
+        if (planObj) planFailReason = 'no plan';
       }
       clearTimeout(timer);
-    } catch (e) { console.warn('planner unreachable:', e && e.message); }
+    } catch (e) {
+      if (e && e.name === 'AbortError') planFailReason = 'timeout';
+      console.warn('planner unreachable:', e && e.message);
+    }
     /* no silent default show — the launch flow surfaces the failure */
     return null;
   }
@@ -324,6 +357,8 @@
     launchBtn.disabled = true;
     launchBtn.querySelector('.launch-word').textContent = 'PLANNING…';
     const planningEl = $('planning');
+    planningEl.classList.remove('error');
+    toast.classList.remove('error');
     $('planning-log').textContent = '';
     $('planning-log').classList.remove('done');
     $('planning-plan').hidden = true;
@@ -335,14 +370,17 @@
     const acts = await plan(currentScenario);
 
     if (!acts){
-      /* no fallback show — say it went wrong and hand the console back */
+      /* no fallback show — the board goes red, names the reason, hands back the console */
+      await showPlanError();
       planningEl.hidden = true;
+      planningEl.classList.remove('error');
       HUD.stop();
       launchBtn.disabled = false;
       launchBtn.querySelector('.launch-word').textContent = 'LAUNCH';
-      toast.textContent = '⚠ something went wrong while planning your show — please try again';
+      toast.textContent = '⚠ ' + errorCopy();
+      toast.classList.add('error');
       toast.hidden = false;
-      setTimeout(() => { toast.hidden = true; }, 3600);
+      setTimeout(() => { toast.hidden = true; }, 4200);
       return;
     }
 
@@ -352,11 +390,30 @@
     HUD.stop();
     launchBtn.disabled = false;
     launchBtn.querySelector('.launch-word').textContent = 'LAUNCH';
+    currentActs = acts;
+    startShow(acts);
+  }
+
+  let paused = false;
+
+  function renderPauseButton(){
+    const button = $('pause-btn');
+    button.setAttribute('aria-pressed', String(paused));
+    button.setAttribute('aria-label', paused ? 'Resume show' : 'Pause show');
+    button.querySelector('.control-icon').textContent = paused ? '▶' : 'Ⅱ';
+    button.querySelector('.control-label').textContent = paused ? 'Resume' : 'Pause';
+  }
+
+  function startShow(acts){
+    paused = false;
+    renderPauseButton();
+    document.body.classList.add('show-active');
     consoleEl.classList.add('away');
     const homeReel = $('home-reel');
     if (homeReel) homeReel.pause();
     showbar.hidden = false;
     waypointsEl.hidden = false;
+    subtitleEl.hidden = true;
     history.replaceState(null, '', '#' + encodeURIComponent(currentScenario));
 
     ENGINE.play(acts, {
@@ -381,12 +438,16 @@
 
   function backToConsole(){
     ENGINE.stop();
+    paused = false;
+    renderPauseButton();
+    document.body.classList.remove('show-active');
     consoleEl.classList.remove('away');
     const homeReel = $('home-reel');
     if (homeReel) homeReel.play().catch(() => {});
     showbar.hidden = true;
     waypointsEl.hidden = true;
     subtitleEl.classList.remove('on');
+    subtitleEl.hidden = true;
   }
 
   /* ── wiring ── */
@@ -404,13 +465,16 @@
     launch(pick);
   });
 
-  let paused = false;
   $('pause-btn').addEventListener('click', () => {
     paused = !paused;
     ENGINE.pause(paused);
-    $('pause-btn').textContent = paused ? '▶' : '⏸';
+    renderPauseButton();
   });
-  $('replay-btn').addEventListener('click', () => { paused = false; $('pause-btn').textContent = '⏸'; launch(currentScenario); });
+  $('replay-btn').addEventListener('click', () => {
+    if (!currentActs) return;
+    ENGINE.stop();
+    startShow(currentActs);
+  });
   $('new-btn').addEventListener('click', backToConsole);
 
   /* ── boot ── */

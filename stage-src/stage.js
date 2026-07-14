@@ -9,7 +9,7 @@ import {
   Scene, PerspectiveCamera, WebGLRenderer, FogExp2, Color, Vector3,
   BufferGeometry, BufferAttribute, Points, ShaderMaterial, AdditiveBlending,
   NormalBlending, CanvasTexture, LineSegments, LineBasicMaterial,
-  InstancedMesh, MeshBasicMaterial, BoxGeometry, Matrix4, Quaternion, Euler,
+  InstancedMesh, MeshBasicMaterial, BoxGeometry, CylinderGeometry, Matrix4, Quaternion, Euler,
   PlaneGeometry, Mesh, DoubleSide, Group, MathUtils, SRGBColorSpace,
 } from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
@@ -69,6 +69,7 @@ const STAGE = (() => {
     const alphaClip = opts.alphaClip === undefined ? .01 : opts.alphaClip;
     const blending = opts.blending === undefined ? AdditiveBlending : opts.blending;
     const depthWrite = !!opts.depthWrite;
+    const depthTest = opts.depthTest !== false;
     /* size-attenuated, per-point color+size. Core lights can write depth;
        halos stay additive and soft. */
     return new ShaderMaterial({
@@ -100,6 +101,7 @@ const STAGE = (() => {
         }`,
       transparent: true,
       depthWrite,
+      depthTest,
       blending,
     });
   }
@@ -251,10 +253,15 @@ const STAGE = (() => {
     lightGeo.setAttribute('psize', new BufferAttribute(lightSize, 1));
     lights = new Points(lightGeo, pointsMaterial(glowTexture(), .94, {
       blending: NormalBlending,
+      /* Airframes no longer write depth, so LED cores can depth-sort against
+         one another without being covered by dark vehicle geometry. This
+         keeps a dense 3D face from becoming a stack of blended white lights. */
       depthWrite: true,
+      depthTest: true,
       alphaClip: .14,
     }));
     lights.frustumCulled = false;
+    lights.renderOrder = 6;
     scene.add(lights);
 
     /* wide soft halo (pre-bloom body glow) sharing position buffer */
@@ -264,8 +271,9 @@ const STAGE = (() => {
     haloSize = new Float32Array(N);
     haloGeo.setAttribute('pcolor', new BufferAttribute(haloCol, 3));
     haloGeo.setAttribute('psize', new BufferAttribute(haloSize, 1));
-    halo = new Points(haloGeo, pointsMaterial(glowTexture(), .11, { alphaClip: .01 }));
+    halo = new Points(haloGeo, pointsMaterial(glowTexture(), .13, { alphaClip: .01, depthTest: false }));
     halo.frustumCulled = false;
+    halo.renderOrder = 5;
     scene.add(halo);
 
     /* motion trails */
@@ -279,6 +287,7 @@ const STAGE = (() => {
       blending: AdditiveBlending, depthWrite: false,
     }));
     trails.frustumCulled = false;
+    trails.renderOrder = 4;
     scene.add(trails);
 
     /* light-wire: consecutive drones on a wireframe stroke link up into
@@ -293,15 +302,24 @@ const STAGE = (() => {
       blending: AdditiveBlending, depthWrite: false,
     }));
     wires.frustumCulled = false;
+    wires.renderOrder = 7;
     scene.add(wires);
 
-    /* airframes: small dark crosses, visible when the camera is close */
-    const arm = new BoxGeometry(11, .9, 1.6);
+    /* Airframes: a real quadcopter silhouette—cross arms, center body and
+       four rotor discs. LEDs render above it, so the vehicle reads without
+       swallowing its assigned formation color. */
+    const arm = new BoxGeometry(15.5, 1.1, 1.9);
     const arm2 = arm.clone().applyMatrix4(new Matrix4().makeRotationY(Math.PI / 2));
-    const body = new BoxGeometry(3.4, 2, 3.4);
-    const geo = mergeGeos([arm, arm2, body]);
-    frames = new InstancedMesh(geo, new MeshBasicMaterial({ color: 0x11141f }), N);
+    const body = new BoxGeometry(4.4, 2.5, 4.4);
+    const rotors = [[-7.1, -7.1], [7.1, -7.1], [-7.1, 7.1], [7.1, 7.1]].map(([x, z]) =>
+      new CylinderGeometry(3, 3, .38, 12)
+        .applyMatrix4(new Matrix4().makeTranslation(x, .1, z)));
+    const geo = mergeGeos([arm, arm2, body, ...rotors]);
+    frames = new InstancedMesh(geo, new MeshBasicMaterial({
+      color: 0x536886, transparent: true, opacity: .62, depthWrite: false,
+    }), N);
     frames.frustumCulled = false;
+    frames.renderOrder = 2;
     frameDummy = new Matrix4();
     scene.add(frames);
 
@@ -348,7 +366,7 @@ const STAGE = (() => {
     scene.background = new Color(0x02040b);
     scene.fog = new FogExp2(0x050914, .00038);
 
-    camera = new PerspectiveCamera(58, W / H, 1, 12000);
+    camera = new PerspectiveCamera(54, W / H, 1, 12000);
     camera.position.copy(rig.pos);
 
     buildStars();
@@ -359,7 +377,9 @@ const STAGE = (() => {
     composer = new EffectComposer(renderer);
     composer.addPass(new RenderPass(scene, camera));
     /* tight bloom: crisp LED cores with a real glare falloff — heavy wash reads childish */
-    bloom = new UnrealBloomPass(undefined, .82, .33, .16);
+    /* Preserve the LED hue in the core; bloom is a tight glare accent, not a
+       white fog pass. This keeps crimson armor and blue fills visibly colored. */
+    bloom = new UnrealBloomPass(undefined, .62, .24, .24);
     composer.addPass(bloom);
     composer.addPass(new OutputPass());
 
@@ -380,18 +400,31 @@ const STAGE = (() => {
     /* smoothed fleet centroid + spread (of airborne, non-parked drones) */
     let cx = 0, cy = 0, cz = 0, m = 0;
     let spread = 0;
+    const framed = [];
+    const hasFeaturedFigure = phase === 'act' && state.drones.some(d =>
+      !d.grounded && !d.park && d.gi >= 0 && d.dim > 1);
     state.drones.forEach(d => {
       if (d.grounded || d.park) return;
-      cx += toX(d.x); cy += toY(d.y); cz += toZ(d.z); m++;
+      /* Backdrops support the hero; they must not pull the camera wide enough
+         to turn a face or body into an unreadable handful of pixels. */
+      if (hasFeaturedFigure && d.dim < 1) return;
+      /* During a formation, frame the authored stations instead of chasing
+         hundreds of aircraft along their transition paths. The audience sees
+         one stable stage while the choreography resolves inside it. */
+      const useStation = phase === 'act' && d.gi >= 0;
+      const x = toX(useStation ? d.tx : d.x);
+      const y = toY(useStation ? d.ty : d.y);
+      const z = toZ(useStation ? d.tz : d.z);
+      framed.push({ x, y, z });
+      cx += x; cy += y; cz += z; m++;
     });
     if (m > 8){
       cx /= m; cy /= m; cz /= m;
-      state.drones.forEach(d => {
-        if (d.grounded || d.park) return;
-        spread += Math.abs(toX(d.x) - cx) + Math.abs(toY(d.y) - cy);
+      framed.forEach(p => {
+        spread += Math.abs(p.x - cx) + Math.abs(p.y - cy);
       });
       spread = spread / m * 1.6;
-      const k = Math.min(1, dt * .0009);
+      const k = Math.min(1, dt * (hasFeaturedFigure ? .0045 : .0009));
       rig.focus.x += (cx - rig.focus.x) * k;
       rig.focus.y += (cy - rig.focus.y) * k;
       rig.focus.z += (cz - rig.focus.z) * k;
@@ -409,7 +442,7 @@ const STAGE = (() => {
     const sway = Math.sin(rig.a * 2.1);
 
     /* distance framed to the formation size; closer = inside the show */
-    const want = MathUtils.clamp(rig.spread * 2.35 + (rig.focus.y - 170) * .55, 620, 1500);
+    const want = MathUtils.clamp(rig.spread * 1.85 + (rig.focus.y - 170) * .44, 520, 1280);
 
     let px, py, pz;
     if (phase === 'idle' || phase === 'takeoff'){
@@ -420,10 +453,10 @@ const STAGE = (() => {
     } else {
       /* airborne: the audience view — low, drifting, looking up at the show.
          narrow arc: a show is choreographed to face its crowd */
-      const orbit = Math.sin(rig.a) * .3;        /* ±17° around the front */
-      const breathe = 1 + Math.sin(rig.a * 1.7) * .07;
+      const orbit = Math.sin(rig.a) * .065;      /* restrained ±4° audience drift */
+      const breathe = 1 + Math.sin(rig.a * 1.7) * .012;
       px = Math.sin(orbit) * want * breathe;
-      py = 170 + Math.sin(rig.a * 1.3) * 30;
+      py = 170 + Math.sin(rig.a * 1.3) * 8;
       pz = rig.focus.z + Math.cos(orbit) * want * breathe;
     }
     const k2 = Math.min(1, dt * .0011);
@@ -439,13 +472,27 @@ const STAGE = (() => {
   /* ── per-frame fleet update ── */
   const colMemo = new Map();
   function rgb(hex){
-    let v = colMemo.get(hex);
+    const key = /^#[0-9a-f]{6}$/i.test(hex || '') ? hex.toLowerCase() : '#9fd8ff';
+    let v = colMemo.get(key);
     if (!v){
-      v = [parseInt(hex.slice(1, 3), 16) / 255,
-           parseInt(hex.slice(3, 5), 16) / 255,
-           parseInt(hex.slice(5, 7), 16) / 255];
+      v = [parseInt(key.slice(1, 3), 16) / 255,
+           parseInt(key.slice(3, 5), 16) / 255,
+           parseInt(key.slice(5, 7), 16) / 255];
+      /* Generated palettes vary wildly. Enforce an LED-output floor here,
+         after every simulation and transition, so no valid formation can
+         become effectively black against the night sky. */
+      const peak = Math.max(...v);
+      if (peak < .58){
+        const scale = .58 / Math.max(.001, peak);
+        v = v.map(c => Math.min(1, c * scale));
+      }
+      const lum = v[0] * .2126 + v[1] * .7152 + v[2] * .0722;
+      if (lum < .22){
+        const mix = (.22 - lum) / Math.max(.001, 1 - lum);
+        v = v.map(c => c + (1 - c) * mix);
+      }
       if (colMemo.size > 4096) colMemo.clear();
-      colMemo.set(hex, v);
+      colMemo.set(key, v);
     }
     return v;
   }
@@ -478,6 +525,7 @@ const STAGE = (() => {
       lightPos[i * 3] = x; lightPos[i * 3 + 1] = y; lightPos[i * 3 + 2] = z;
 
       const c = rgb(d.color);
+      const featured = d.dim > 1;
       const dx = x - camPos.x, dy = y - camPos.y, dz = z - camPos.z;
       const cd = Math.sqrt(dx * dx + dy * dy + dz * dz);
       let depthCue = 1;
@@ -486,43 +534,57 @@ const STAGE = (() => {
         const rel = MathUtils.clamp((cd - g.near) / (g.far - g.near), 0, 1);
         depthCue = MathUtils.lerp(1.08, .58, rel);
       }
+      /* Props and contour strokes must survive a 3D turn. They are already
+         sparse by design, so applying the full far-depth dim makes a blade
+         disappear even though every aircraft is still on station. */
+      const edgeCue = d.edge ? Math.max(.94, depthCue) : depthCue;
       /* intensity: parked sentries dim; transit dims a touch; arrival + spark burn */
       const transit = d.grounded ? .5 : Math.max(.62, Math.min(1, 1 - (d.lastDist - 16) / 320));
       const breathe = d.grounded ? .35 + .25 * Math.abs(Math.sin(state.now * .0012 + d.phase)) : 1;
-      const wantGlow = (d.park ? .16 : 1.05) * (d.dim === undefined ? 1 : d.dim) * transit * breathe * depthCue * (1 + d.spark * 2.2);
+      const edgeBoost = d.edge ? 1.38 : 1;
+      let wantGlow = (d.park ? .16 : 1.05) * (d.dim === undefined ? 1 : d.dim) * transit * breathe * edgeCue * edgeBoost * (1 + d.spark * 2.2);
+      if (!d.grounded && !d.park && d.gi >= 0) wantGlow = Math.max(wantGlow, d.edge ? 1.22 : featured ? .78 : .9);
       const glowSmooth = Math.min(1, dt * .018);
       d.renderGlow = d.renderGlow === undefined ? wantGlow : d.renderGlow + (wantGlow - d.renderGlow) * glowSmooth;
       const glow = d.renderGlow;
       lightCol[i * 3] = c[0] * glow;
       lightCol[i * 3 + 1] = c[1] * glow;
       lightCol[i * 3 + 2] = c[2] * glow;
-      const crisp = !d.grounded && !d.park && d.lastDist < 10 ? .72 : 1;
-      const wantSize = (d.grounded ? 5 : d.park ? 4.5 : d.si >= 0 ? 5.4 : 7.2) * crisp * (.9 + depthCue * .16) * (1 + d.spark * .9);
+      const crisp = !d.grounded && !d.park && d.lastDist < 10 ? (d.edge ? .96 : .9) : 1;
+      const wantSize = (d.grounded ? 5 : d.park ? 4.5 : d.edge ? 6.8 : featured ? 5.8 : d.gi >= 0 ? 7.1 : 7.9) * crisp * (.9 + edgeCue * .16) * (1 + d.spark * .9);
       const sizeSmooth = Math.min(1, dt * .026);
       d.renderSize = d.renderSize === undefined ? wantSize : d.renderSize + (wantSize - d.renderSize) * sizeSmooth;
       lightSize[i] = d.renderSize;
 
-      const hg = glow * (.64 + depthCue * .18);
+      const hg = glow * (.64 + edgeCue * .18);
       haloCol[i * 3] = c[0] * hg; haloCol[i * 3 + 1] = c[1] * hg; haloCol[i * 3 + 2] = c[2] * hg;
-      const wantHalo = (d.grounded ? 8 : d.si >= 0 ? 7.6 : 13) * (.88 + depthCue * .12);
+      const wantHalo = (d.grounded ? 8 : d.edge ? 10.5 : featured ? 7.2 : d.gi >= 0 ? 9.8 : 13) * (.88 + edgeCue * .12);
       d.renderHalo = d.renderHalo === undefined ? wantHalo : d.renderHalo + (wantHalo - d.renderHalo) * sizeSmooth;
       haloSize[i] = d.renderHalo;
 
-      /* trail from previous sim position */
-      const speed = Math.hypot(d.vx || 0, d.vy || 0);
-      const tr = Math.min(.5, speed * 2.4);
+      /* A short velocity afterimage makes a sword sweep and limb movement
+         readable without leaving residue once the pose locks. */
+      const speed = Math.hypot(d.vx || 0, d.vy || 0, d.vz || 0);
+      const tr = Math.min(.5, speed * 3.1) * (state.phase === 'takeoff' ? .24 : 1);
+      const trailMs = state.phase === 'takeoff'
+        ? Math.min(18, speed * 180)
+        : Math.min(d.edge ? 115 : 78, speed * 900);
       const j = i * 6;
-      trailPos[j] = toX(d.px); trailPos[j + 1] = toY(d.py); trailPos[j + 2] = z;
+      trailPos[j] = toX(d.x - (d.vx || 0) * trailMs);
+      trailPos[j + 1] = toY(d.y - (d.vy || 0) * trailMs);
+      trailPos[j + 2] = toZ(d.z - (d.vz || 0) * trailMs / world.depth);
       trailPos[j + 3] = x; trailPos[j + 4] = y; trailPos[j + 5] = z;
       trailCol[j] = c[0] * tr * .4; trailCol[j + 1] = c[1] * tr * .4; trailCol[j + 2] = c[2] * tr * .4;
       trailCol[j + 3] = c[0] * tr; trailCol[j + 4] = c[1] * tr; trailCol[j + 5] = c[2] * tr;
 
-      /* airframe: fade in within ~700 of the camera */
+      /* During takeoff the aircraft—not abstract particles—are the subject.
+         Keep a compact but readable quadcopter silhouette even at the back of
+         the launch wave; after takeoff it returns to distance-based detail. */
       const vis = MathUtils.clamp((760 - cd) / 500, 0, 1);
       E.set(0, d.phase + state.now * .0004, Math.sin(d.phase + state.now * .001) * .06);
       Q.setFromEuler(E);
       P.set(x, y - 1.2, z);
-      const sc = vis > .01 ? 1 : .0001;
+      const sc = state.phase === 'takeoff' ? Math.max(.7, vis) : (vis > .01 ? vis : .0001);
       S.set(sc, sc, sc);
       frameDummy.compose(P, Q, S);
       frames.setMatrixAt(i, frameDummy);
@@ -547,7 +609,7 @@ const STAGE = (() => {
       wirePos[j] = toX(d.x); wirePos[j + 1] = toY(d.y); wirePos[j + 2] = toZ(d.z);
       wirePos[j + 3] = toX(nx.x); wirePos[j + 4] = toY(nx.y); wirePos[j + 5] = toZ(nx.z);
       const c1 = rgb(d.color), c2 = rgb(nx.color);
-      const dimw = (d.dim === undefined ? 1 : d.dim) * .36;
+      const dimw = (d.dim === undefined ? 1 : d.dim) * (d.edge ? .96 : .5);
       wireCol[j] = c1[0] * dimw; wireCol[j + 1] = c1[1] * dimw; wireCol[j + 2] = c1[2] * dimw;
       wireCol[j + 3] = c2[0] * dimw; wireCol[j + 4] = c2[1] * dimw; wireCol[j + 5] = c2[2] * dimw;
       wn++;

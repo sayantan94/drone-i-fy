@@ -251,14 +251,13 @@ const COMPILER = (() => {
 
   const SURPRISES = [
     'a lone archer fires a burning arrow across the moon',
-    'a dragon circles a castle and breathes fire',
-    'ronaldo scores and does the siu',
+    'a phoenix rises from embers and spreads its wings over the city',
     'a boxer raises the championship belt under golden fireworks',
-    'a rocket launches through a ring and lands on the moon',
-    'a wolf howls at a giant full moon',
-    'usain bolt strikes the lightning pose at the finish line',
+    'a whale breaches under the northern lights',
     'the eiffel tower sparkles at midnight',
     'a robot dances under a full moon',
+    'two hearts orbit each other and shatter into golden fireworks',
+    'an astronaut waves beside a giant full moon',
   ];
 
   return { compile, SURPRISES };

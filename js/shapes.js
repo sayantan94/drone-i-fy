@@ -481,7 +481,7 @@ const SHAPES = (() => {
 
   function strokePoints(e, count){
     let pts = e.pts;
-    if (pts.length >= 4){ pts = chaikin(chaikin(pts, e.close), e.close); }
+    if (pts.length >= 4 && !e.sharp){ pts = chaikin(chaikin(pts, e.close), e.close); }
     else if (e.close) pts = pts.concat([pts[0]]);
     const segs = [];
     let L = 0;
@@ -526,7 +526,17 @@ const SHAPES = (() => {
           if (inPoly(x, y, e.pts)) got.push([x, y]);
         }
       }
-      if (got.length >= count) return got.slice(0, count);
+      if (got.length >= count){
+        /* The lattice is row-major. Taking got.slice(0, count) amputates the
+           bottom of every filled body part whenever this pass yields more
+           points than requested. Sample evenly across the full lattice so a
+           torso, face or leg always keeps its complete silhouette. */
+        const spread = [];
+        for (let i = 0; i < count; i++){
+          spread.push(got[Math.min(got.length - 1, Math.floor((i + .5) * got.length / count))]);
+        }
+        return spread;
+      }
     }
     return e.pts.slice();
   }
@@ -543,7 +553,7 @@ const SHAPES = (() => {
         pts: e.pts.map(p => [p[0] / 50 - 1, 1 - p[1] / 50]),
       }));
     }
-    const BUDGET = 520;
+    const BUDGET = 580;
     const meta = art.map(e => {
       if (e.mode === 'fill'){
         let A = 0;
@@ -577,7 +587,26 @@ const SHAPES = (() => {
     let strokeId = 0;
     art.forEach((e, i) => {
       const count = counts[i];
-      const raw = e.mode === 'fill' ? fillPoints(e, count) : strokePoints(e, count);
+      let raw;
+      let contourStroke = -1;
+      if (e.mode === 'fill'){
+        /* Filled parts still need a readable silhouette. Reserve a modest
+           perimeter ring, then pack the rest inside it. The perimeter is a
+           softer light-wire (contour, not a prop edge), so limbs look cut
+           cleanly without turning the whole person into line art. */
+        const boundaryCount = count >= 10
+          ? Math.min(Math.max(6, Math.round(count * .22)), Math.floor(count * .4))
+          : 0;
+        const boundary = boundaryCount
+          ? strokePoints(Object.assign({}, e, { close: true, sharp: true }), boundaryCount)
+              .map((p, oi) => [p[0], p[1], true, oi])
+          : [];
+        if (boundary.length) contourStroke = strokeId++;
+        raw = boundary.concat(fillPoints(e, count - boundary.length));
+      } else {
+        contourStroke = strokeId++;
+        raw = strokePoints(e, count);
+      }
       /* 3D: each part is a volume (depth = thickness) on its own layer
          (lift: + toward the audience), not a paper cutout */
       const depth = Math.max(0, Math.min(30, e.depth === undefined ? (e.mode === 'fill' ? 12 : 2) : e.depth)) / 50;
@@ -600,6 +629,7 @@ const SHAPES = (() => {
         }
       }
       raw.forEach((p, oi) => {
+        const contour = e.mode === 'fill' && !!p[2];
         const nx = (p[0] - cx) / rx;
         const ny = (p[1] - cy) / ry;
         const round = Math.sqrt(Math.max(0, 1 - Math.min(1, nx * nx * .72 + ny * ny)));
@@ -613,17 +643,27 @@ const SHAPES = (() => {
           y: p[1],
           z: base + shell * thickness,
           c: col,
+          /* Stable semantic identity for pose-to-pose morphing. The runtime
+             can keep helmet drones on the helmet and blade drones on the
+             blade instead of rebuilding the character from arbitrary nearby
+             aircraft at every keyframe. */
+          part: i,
+          /* Normalized coordinates within this part give every aircraft a
+             persistent place on the material. A blade point near the guard
+             remains near the guard while the entire blade rotates. */
+          pu: e.mode === 'fill' ? (p[0] - minX) / Math.max(.001, maxX - minX) : oi / Math.max(1, raw.length - 1),
+          pv: e.mode === 'fill' ? (p[1] - minY) / Math.max(.001, maxY - minY) : 0,
           edge: e.mode !== 'fill',
+          contour,
         };
-        if (e.mode !== 'fill'){
-          point.si = strokeId;
-          point.oi = oi;
+        if (e.mode !== 'fill' || contour){
+          point.si = contourStroke;
+          point.oi = contour ? p[3] : oi;
         }
         pts.push(point);
       });
-      if (e.mode !== 'fill') strokeId++;
     });
-    return finish(pts.slice(0, 620), key, false, true);
+    return finish(pts.slice(0, 700), key, false, true);
   }
 
   /* ── ascii: the planner draws a character grid, the fleet flies it ──

@@ -26,36 +26,64 @@
   <div class="aurora" aria-hidden="true"></div>
   <video class="home-reel" id="home-reel" muted loop autoplay playsinline
     poster="assets/color-water-poster.jpg" src="assets/color-water.mp4"></video>
-  <h1 class="brand">DRONE<span>·</span>I<span>·</span>FY</h1>
-  <p class="tag">type a scenario. launch a drone show.</p>
+  <header class="home-nav">
+    <a class="wordmark" href="#" aria-label="DRONE·I·FY home">
+      <span class="wordmark-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+      <span>DRONE<span class="wordmark-dot">·</span>I<span class="wordmark-dot">·</span>FY</span>
+    </a>
+    <div class="nav-status"><i aria-hidden="true"></i><span>600 aircraft ready</span></div>
+  </header>
 
-  <form id="launch-form" autocomplete="off">
-    <div class="pad">
-      <textarea id="scenario" rows="2" maxlength="400" spellcheck="false"
-        placeholder="a phoenix rises from embers, spreads its wings over the city, and bursts into golden fireworks"></textarea>
-      <button type="submit" class="launch" id="launch-btn">
-        <span class="launch-word">LAUNCH</span>
-      </button>
-    </div>
-  </form>
+  <div class="home-shell">
+    <section class="hero-copy" aria-labelledby="home-title">
+      <p class="hero-kicker"><span>AI CHOREOGRAPHY ENGINE</span><b>LIVE</b></p>
+      <h1 class="hero-title" id="home-title">Describe the moment.<br><em>We’ll light the sky.</em></h1>
+      <p class="hero-lede">Turn a sentence into a cinematic drone show—planned, flown, and rendered by a fleet with real flight physics.</p>
+      <dl class="hero-proof">
+        <div><dt>600</dt><dd>individual drones</dd></div>
+        <div><dt>3D</dt><dd>flight choreography</dd></div>
+        <div><dt>∞</dt><dd>stories to tell</dd></div>
+      </dl>
+    </section>
 
-  <section class="tryout" aria-label="try it out">
-    <div class="tryout-head">
-      <p class="tryout-kicker">TRY IT OUT</p>
-      <p class="tryout-copy">tap a sample prompt, then remix it</p>
-    </div>
-    <div class="chips" id="chips">
-      <button class="chip">a lone samurai draws his katana as the red sun rises</button>
-      <button class="chip">messi lifts the world cup and the sky celebrates</button>
-      <button class="chip">elon musk vs sam altman</button>
-      <button class="chip">anthropic vs openai</button>
-      <button class="chip">a phoenix rises from embers and spreads its wings over the city</button>
-      <button class="chip surprise" id="surprise">✦ surprise me</button>
-    </div>
-  </section>
+    <section class="composer-card" aria-label="Create a drone show">
+      <div class="composer-head">
+        <span><b>01</b> Describe your show</span>
+        <small>up to 400 characters</small>
+      </div>
+      <form id="launch-form" autocomplete="off">
+        <div class="pad">
+          <textarea id="scenario" rows="4" maxlength="400" spellcheck="false"
+            aria-label="Describe your drone show"
+            placeholder="A phoenix rises from embers, spreads its wings over the city, and bursts into golden fireworks…"></textarea>
+          <div class="composer-actions">
+            <span class="composer-hint"><kbd>↵</kbd> to launch · <kbd>⇧↵</kbd> new line</span>
+            <button type="submit" class="launch" id="launch-btn">
+              <span class="launch-word">Create my show</span><span class="launch-arrow" aria-hidden="true">→</span>
+            </button>
+          </div>
+        </div>
+      </form>
 
-  <p class="foot">any scenario works — nouns become formations, verbs become flight, celebrations get their fireworks<br>
-    a <a href="https://www.sayantan.sh">sayantan.sh</a> product</p>
+      <div class="tryout" aria-label="Sample prompts">
+        <div class="tryout-head">
+          <p class="tryout-kicker">Start with a scene</p>
+          <button class="surprise-link surprise" id="surprise" type="button">✦ Surprise me</button>
+        </div>
+        <div class="chips" id="chips">
+          <button class="chip" type="button"><i>01</i><span>a lone samurai draws his katana as the red sun rises</span><b>→</b></button>
+          <button class="chip" type="button"><i>02</i><span>a dragon circles a castle and breathes fire</span><b>→</b></button>
+          <button class="chip" type="button"><i>03</i><span>a rocket launches through a ring and lands on the moon</span><b>→</b></button>
+          <button class="chip" type="button"><i>04</i><span>a phoenix rises from embers over the city</span><b>→</b></button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <footer class="home-foot">
+    <span>Every noun becomes a formation. Every verb becomes flight.</span>
+    <a href="https://www.sayantan.sh">A sayantan.sh experiment</a>
+  </footer>
 </main>
 
 <!-- planning interstitial: the choreographer's console — live reasoning, then the flight plan -->
@@ -66,26 +94,47 @@
   <div class="hud-rail hud-rail-l" id="hud-rail-l" aria-hidden="true"></div>
   <div class="hud-rail hud-rail-r" id="hud-rail-r" aria-hidden="true"></div>
   <div class="hud-radar" aria-hidden="true"></div>
-  <div class="planning-copy">
-    <div class="planning-orbit" aria-hidden="true"><i></i><i></i><i></i></div>
-    <p class="planning-eyebrow" id="planning-eyebrow">MISSION CONTROL · CHOREOGRAPHY ENGINE ONLINE</p>
-    <p class="planning-title" id="planning-title">PLANNING FLIGHT PATH</p>
-    <p class="planning-sub" id="planning-sub">choreographing your fleet</p>
-    <div class="planning-bar"><i></i></div>
-    <div class="planning-log" id="planning-log" aria-live="polite"></div>
-    <ol class="planning-plan" id="planning-plan" hidden></ol>
+  <header class="planning-nav">
+    <div class="planning-brand"><span class="wordmark-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>DRONE·I·FY</div>
+    <div class="planning-live"><i aria-hidden="true"></i> Choreographer connected</div>
+  </header>
+  <div class="planning-layout">
+    <section class="planning-summary">
+      <div class="planning-orbit" aria-hidden="true"><i></i><i></i><i></i></div>
+      <p class="planning-eyebrow" id="planning-eyebrow">MISSION CONTROL · CHOREOGRAPHY ENGINE ONLINE</p>
+      <h2 class="planning-title" id="planning-title">PLANNING FLIGHT PATH</h2>
+      <p class="planning-sub" id="planning-sub">choreographing your fleet</p>
+      <div class="planning-bar"><i></i></div>
+      <div class="planning-facts" aria-label="Planning status">
+        <span><small>Fleet</small><b>600 ready</b></span>
+        <span><small>Airspace</small><b>Locked</b></span>
+        <span><small>Simulation</small><b>Running</b></span>
+      </div>
+    </section>
+    <section class="planning-feed">
+      <div class="feed-head"><span>Choreographer stream</span><b><i></i> Live</b></div>
+      <div class="planning-log" id="planning-log" aria-live="polite"></div>
+      <ol class="planning-plan" id="planning-plan" hidden></ol>
+      <div class="feed-foot"><span>FlightScript / generative plan</span><span>Encrypted uplink</span></div>
+    </section>
   </div>
 </div>
 
 <!-- during-show chrome -->
-<div class="subtitle" id="subtitle" hidden></div>
-<div class="waypoints" id="waypoints" hidden></div>
-<div class="showbar" id="showbar" hidden>
-  <button id="pause-btn" title="pause / resume">⏸</button>
-  <button id="replay-btn" title="replay show">↺</button>
-  <button id="new-btn" title="new scenario">✎ NEW SHOW</button>
+<div class="subtitle" id="subtitle" role="status" aria-live="polite" hidden></div>
+<div class="waypoints" id="waypoints" aria-hidden="true" hidden></div>
+<div class="showbar" id="showbar" role="toolbar" aria-label="Show controls" hidden>
+  <button type="button" id="pause-btn" aria-label="Pause show" aria-pressed="false">
+    <span class="control-icon" aria-hidden="true">Ⅱ</span><span class="control-label">Pause</span>
+  </button>
+  <button type="button" id="replay-btn" aria-label="Replay show">
+    <span class="control-icon" aria-hidden="true">↺</span><span class="control-label">Replay</span>
+  </button>
+  <button type="button" id="new-btn" class="new-show" aria-label="Create a new show">
+    <span class="control-icon" aria-hidden="true">✦</span><span class="control-label">New show</span>
+  </button>
 </div>
-<div class="toast" id="toast" hidden></div>
+<div class="toast" id="toast" role="alert" aria-live="assertive" hidden></div>
 
 <script src="js/stage.bundle.js"></script>
 <script src="js/shapes.js"></script>

@@ -27,6 +27,8 @@ const ENGINE = (() => {
   const SEP_PUSH = .0009;
   const DRAG = .0013;
   const PHYSICS_STEP = 16;        /* integrate in small slices for stability */
+  const DEPTH_SCALE = 260;        /* must match the stage's world-depth scale */
+  const LOCK_R = 10;              /* distance at which a drone owns its slot */
 
   const TAKEOFF_MS = 6500, LANDING_MS = 6500;
 
@@ -62,10 +64,12 @@ const ENGINE = (() => {
     for (let i = 0; i < N; i++){
       const p = padSlots[i];
       drones.push({
+        id: i,
         x: p.x, y: p.y, z: p.z,
-        px: p.x, py: p.y, hasPrev: false,
-        vx: 0, vy: 0,
+        px: p.x, py: p.y, pz: p.z, hasPrev: false,
+        vx: 0, vy: 0, vz: 0,
         tx: p.x, ty: p.y, tz: p.z,
+        tvx: 0, tvy: 0, tvz: 0,
         gi: -1, bx: 0, by: 0,
         grounded: true, landing: false,
         color: PALETTE[i % PALETTE.length], tcolor: PALETTE[i % PALETTE.length],
@@ -73,7 +77,8 @@ const ENGINE = (() => {
         strobe: Math.random() * 1700,
         perf: .88 + Math.random() * .28,      /* no two airframes fly alike */
         nx: 0, ny: 0,                          /* turbulence state */
-        delay: 0, park: false, spark: 0, lastDist: 0,
+        delay: 0, park: false, locked: false, edge: false, contour: false, part: -1, pu: 0, pv: 0, spark: 0, lastDist: 0,
+        sax: 0, say: 0, saz: 0,
       });
     }
   }
@@ -84,7 +89,19 @@ const ENGINE = (() => {
   }
 
   /* ── colors ── */
+  function ledColor(hex, fallback){
+    const safe = /^#[0-9a-f]{6}$/i.test(hex || '') ? hex : (fallback || '#9fd8ff');
+    const ch = [1, 3, 5].map(i => parseInt(safe.slice(i, i + 2), 16));
+    const peak = Math.max(...ch);
+    const lum = ch[0] * .2126 + ch[1] * .7152 + ch[2] * .0722;
+    /* Scale dim palettes instead of adding gray. This keeps crimson armor
+       saturated while raising it to a real LED-output floor. */
+    const scale = Math.max(1, 170 / Math.max(1, peak), 76 / Math.max(1, lum));
+    if (scale <= 1.001) return safe.toLowerCase();
+    return '#' + ch.map(v => Math.min(255, Math.round(v * scale)).toString(16).padStart(2, '0')).join('');
+  }
   function hexLerp(a, b, t){
+    a = ledColor(a); b = ledColor(b);
     const pa = [1, 3, 5].map(i => parseInt(a.slice(i, i + 2), 16));
     const pb = [1, 3, 5].map(i => parseInt(b.slice(i, i + 2), 16));
     return '#' + pa.map((v, i) => Math.round(v + (pb[i] - v) * t).toString(16).padStart(2, '0')).join('');
@@ -102,8 +119,8 @@ const ENGINE = (() => {
       const parts = c.split(':');
       return hexLerp(parts[1], parts[2], 1 - (p.y + 1) / 2);
     }
-    if (/^#[0-9a-f]{6}$/i.test(c)) return c;
-    return p.c || PALETTE[idx % PALETTE.length];
+    if (/^#[0-9a-f]{6}$/i.test(c)) return ledColor(c);
+    return ledColor(p.c, PALETTE[idx % PALETTE.length]);
   }
 
   function evenPick(list, count){
@@ -183,6 +200,7 @@ const ENGINE = (() => {
       /* rows lift in waves into a loose holding cloud above the city */
       drones.forEach((d, i) => {
         d.gi = -1; d.park = false; d.grounded = false; d.landing = false;
+        d.locked = false; d.edge = false; d.contour = false; d.part = -1; d.tvx = 0; d.tvy = 0; d.tvz = 0;
         const cols = 40, col = i % cols, row = (i / cols) | 0;
         d.tx = cx + (col - (cols - 1) / 2) * (s * 2 / cols);
         d.ty = cy + (row - 7) * (s * .09);
@@ -198,6 +216,7 @@ const ENGINE = (() => {
     if (act.system === 'landing'){
       drones.forEach((d, i) => {
         d.gi = -1; d.park = false; d.landing = true;
+        d.locked = false; d.edge = false; d.contour = false; d.part = -1; d.tvx = 0; d.tvy = 0; d.tvz = 0;
         d.tx = padSlots[i].x; d.ty = padSlots[i].y; d.tz = padSlots[i].z;
         d.tcolor = PALETTE[i % PALETTE.length];
         d.lastDist = 1e9;
@@ -207,14 +226,30 @@ const ENGINE = (() => {
       return;
     }
 
-    show.groups = act.groups.map(g => {
+    const previousGroups = show.groups || [];
+    const previousFigure = previousGroups.find(G =>
+      G.spec && (G.spec.ascii || G.spec.art));
+    show.groups = act.groups.map((g, gi) => {
       /* 3D solids always get a slow yaw — depth is their whole point */
-      const motion = (g.motion || []).slice();
+      const motion = (g.motion || []).flatMap(m => {
+        if (!g.art) return [Object.assign({}, m)];
+        /* Character silhouettes are audience-facing keyframes. Turning them
+           edge-on or rippling individual pixels destroys the pose, so keep a
+           barely visible breath and let the pose morph provide the action. */
+        if (m.type === 'orbit') return [{ type: 'pulse', amp: .018 }];
+        if (m.type === 'wave') return [];
+        if (m.type === 'pulse') return [Object.assign({}, m, { amp: Math.min(.025, m.amp || .018) })];
+        return [Object.assign({}, m)];
+      });
       if (SHAPES.SOLIDS.includes(g.shape) && g.fill !== 'solid' && !motion.some(m => m.type === 'orbit')){
         motion.push({ type: 'orbit', speed: .55 });
       }
       return {
         spec: Object.assign({}, g, { motion }),
+        /* Planners may list backdrop then figure in one act and reverse that
+           order in the next. Match the featured subject semantically so its
+           body and prop drones still execute one persistent pose morph. */
+        poseMorph: !!(g.ascii || g.art) && !!previousFigure,
         ox: cx + (g.at[0] || 0) * s,
         oy: cy - (g.at[1] || 0) * s * .9,
         ang: (g.rotate || 0) * Math.PI / 180,
@@ -223,9 +258,21 @@ const ENGINE = (() => {
       };
     });
 
+    const figG = show.groups.findIndex(G => G.spec.ascii || G.spec.art);
     const weights = act.groups.map(g => g.weight || 1);
     const wsum = weights.reduce((a, b) => a + b, 0);
-    const alloc = weights.map(w => Math.floor(N * .97 * w / wsum));
+    let alloc = weights.map(w => Math.floor(N * .97 * w / wsum));
+    if (figG >= 0 && show.groups.length > 1){
+      /* Faces and full-body figures need pixel density far more than a sun or
+         moon backdrop does. Give the featured subject a guaranteed majority
+         instead of letting planner weights accidentally halve its detail. */
+      const total = Math.floor(N * .97);
+      const figureShare = Math.floor(total * .78);
+      const supportWeight = weights.reduce((sum, w, gi) => sum + (gi === figG ? 0 : w), 0);
+      alloc = weights.map((w, gi) => gi === figG
+        ? figureShare
+        : Math.floor((total - figureShare) * w / Math.max(.001, supportWeight)));
+    }
 
     const free = drones.slice();
 
@@ -246,7 +293,6 @@ const ENGINE = (() => {
 
     /* the figure owns its sky: clear backdrop points behind an ascii
        character, dim the rest, float the figure toward the audience */
-    const figG = show.groups.findIndex(G => G.spec.ascii || G.spec.art);
     if (figG >= 0 && show.groups.length > 1){
       const CS = 30;
       const mask = new Set();
@@ -285,7 +331,12 @@ const ENGINE = (() => {
       const enter = act.enter || 'drift';
 
       const members = [];
-      pts.forEach((p, idx) => {
+      /* Assign contour props first and keep their aircraft identity between
+         keyframes. A katana should move like one persistent object, not
+         dissolve into unrelated body drones and be rebuilt at the endpoint. */
+      const assignmentPts = pts.map((p, idx) => ({ p, idx }))
+        .sort((a, b) => Number(!!b.p.edge) - Number(!!a.p.edge));
+      assignmentPts.forEach(({ p, idx }) => {
         if (!free.length) return;
         const rx = p.x * Math.cos(G.ang) - p.y * Math.sin(G.ang);
         const ry = p.x * Math.sin(G.ang) + p.y * Math.cos(G.ang);
@@ -293,32 +344,64 @@ const ENGINE = (() => {
         const px = G.ox + bx, py = G.oy + by;
 
         let best = 0, bd = 1e18;
+        const part = p.part === undefined ? -1 : p.part;
+        const preservePart = part >= 0 && free.some(candidate => candidate.part === part);
+        const preserveRole = !preservePart && free.some(candidate => candidate.edge === !!p.edge);
         for (let k = 0; k < free.length; k++){
-          const dd = (free[k].x - px) ** 2 + (free[k].y - py) ** 2;
+          if (preservePart && free[k].part !== part) continue;
+          if (preserveRole && free[k].edge !== !!p.edge) continue;
+          let dd = (free[k].x - px) ** 2 + (free[k].y - py) ** 2;
+          if (preservePart && Number.isFinite(p.pu) && Number.isFinite(free[k].pu)){
+            const du = free[k].pu - p.pu, dv = free[k].pv - p.pv;
+            dd += (du * du + dv * dv) * (W + H) ** 2;
+          }
           if (dd < bd){ bd = dd; best = k; }
         }
         const d = free.splice(best, 1)[0];
-        d.gi = gi; d.bx = bx; d.by = by; d.bz = p.z * scale; d.tz = p.z * .8;
+        /* Characters are shallow illuminated bas-reliefs. Full volumetric
+           depth creates parallax fuzz at the audience camera and makes a
+           clean arm or face look like a cloud. Solids retain full depth. */
+        const depthFactor = (g.art || g.ascii) ? .18 : 1;
+        d.gi = gi; d.bx = bx; d.by = by; d.bz = p.z * scale * depthFactor;
+        /* Plan against this act's slot, never the previous act's endpoint. */
+        d.tx = px; d.ty = py; d.tz = d.bz / Math.max(1, s) + (G.zoff || 0);
+        d.tvx = 0; d.tvy = 0; d.tvz = 0; d.locked = false;
         d.si = p.si === undefined ? -1 : p.si; d.oi = p.oi || 0;
+        d.edge = !!p.edge;
+        d.contour = !!p.contour;
+        d.part = part;
+        d.pu = Number.isFinite(p.pu) ? p.pu : 0;
+        d.pv = Number.isFinite(p.pv) ? p.pv : 0;
         d.park = false; d.grounded = false; d.landing = false;
         /* drawn characters keep their costume: element colors beat group washes */
-        d.tcolor = ((g.art || g.ascii) && p.c) ? p.c : pointColor(p, g, idx, pts.length);
+        d.tcolor = ledColor(((g.art || g.ascii) && p.c) ? p.c : pointColor(p, g, idx, pts.length));
+        if (d.edge) d.color = d.tcolor;
         d.lastDist = 1e9;
         d.hasPrev = false;
         planPath(d, enterWave(enter, p, idx, pts.length), enterArcSign(enter, gi, p), enterArcScale(enter, p));
+        if (G.poseMorph){
+          /* A pose change is one synchronized body movement, not another
+             formation entrance. Direct paths make the arm and blade sweep
+             legible while the torso remains anchored. */
+          d.pt = engineNow;
+          d.arc = 0;
+        }
         d.dim = figG < 0 ? 1 : gi === figG ? 1.15 : .6;
         members.push(d);
       });
       /* synchronized morph: one shared flight time — the image resolves as one */
       let maxDist = 0;
       members.forEach(d => { maxDist = Math.max(maxDist, Math.hypot(d.tx - d.sx, d.ty - d.sy)); });
-      const T = Math.max(2200, Math.min(8000, maxDist / (MAX_SPEED * .82)));
+      const T = G.poseMorph
+        ? Math.max(1500, Math.min(3800, maxDist / (MAX_SPEED * .9)))
+        : Math.max(1800, Math.min(6000, maxDist / (MAX_SPEED * .82)));
       members.forEach(d => { d.pT = T; });
     });
 
     /* spare drones tuck low at the flanks, out of the picture */
     free.forEach((d, i) => {
       d.gi = -1; d.park = true; d.grounded = false; d.landing = false;
+      d.locked = false; d.edge = false; d.contour = false; d.part = -1; d.tvx = 0; d.tvy = 0; d.tvz = 0;
       const side = i % 2 ? 1 : -1;
       const k = (i / Math.max(1, free.length - 1));
       d.tx = W / 2 + side * (W * .40 + k * W * .07);
@@ -327,7 +410,9 @@ const ENGINE = (() => {
       planPath(d, i / Math.max(1, free.length), 1);
     });
 
-    show.swirl = act.enter === 'swirl' ? engineNow + 2400 : 0;
+    /* Entry arcs already express swirl. Rotating the destination underneath
+       an arriving fleet made the image chase a moving target. */
+    show.swirl = 0;
   }
 
   /* ── trajectory choreography: a planned, timed arc for every drone ──
@@ -337,10 +422,10 @@ const ENGINE = (() => {
      turbulence — intention plus texture. */
   function planPath(d, wave01, arcSign, arcScale){
     if (d.gi < 0) d.si = -1;
-    const dist = Math.hypot(d.tx - d.x, d.ty - d.y);
-    d.sx = d.x; d.sy = d.y;
-    d.pt = engineNow + (wave01 || 0) * 1350 + Math.random() * 220;  /* ripple departure — a visible sweeping wave, like a real fleet */
-    d.pT = Math.max(2200, Math.min(11000, dist / (MAX_SPEED * .8)));
+    const dist = Math.hypot(d.tx - d.x, d.ty - d.y, (d.tz - d.z) * DEPTH_SCALE);
+    d.sx = d.x; d.sy = d.y; d.sz = d.z;
+    d.pt = engineNow + (wave01 || 0) * 850 + Math.random() * 120;  /* quick spatial ripple; no long dead wait before the image moves */
+    d.pT = Math.max(1800, Math.min(8000, dist / (MAX_SPEED * .82)));
     d.arc = arcSign * (.12 + Math.random() * .06) * (arcScale === undefined ? 1 : arcScale);
     d.delay = 0;
     d.dim = 1;
@@ -348,32 +433,44 @@ const ENGINE = (() => {
 
   function carrot(d){
     /* where on its planned path this drone should be right now */
-    const u = Math.max(0, Math.min(1, (engineNow - d.pt) / d.pT));
+    const raw = (engineNow - d.pt) / d.pT;
+    const u = Math.max(0, Math.min(1, raw));
     const e = u * u * (3 - 2 * u);                          /* smoothstep speed profile */
+    const dedt = raw > 0 && raw < 1 ? 6 * u * (1 - u) / d.pT : 0;
     const mx = (d.sx + d.tx) / 2, my = (d.sy + d.ty) / 2;
     const dx = d.tx - d.sx, dy = d.ty - d.sy;
     const cxp = mx - dy * d.arc, cyp = my + dx * d.arc;      /* perpendicular arc */
     const a = 1 - e;
+    const dbx = 2 * a * (cxp - d.sx) + 2 * e * (d.tx - cxp);
+    const dby = 2 * a * (cyp - d.sy) + 2 * e * (d.ty - cyp);
     return {
       x: a * a * d.sx + 2 * a * e * cxp + e * e * d.tx,
       y: a * a * d.sy + 2 * a * e * cyp + e * e * d.ty,
+      z: d.sz + (d.tz - d.sz) * e,
+      vx: dbx * dedt,
+      vy: dby * dedt,
+      vz: (d.tz - d.sz) * DEPTH_SCALE * dedt,
       done: u >= 1,
     };
   }
 
   /* how much of the fleet has locked into its slots */
   function formationProgress(){
-    let assigned = 0, arrived = 0;
+    let assigned = 0, arrived = 0, critical = 0, criticalArrived = 0;
+    const isFormation = show.groups.length > 0;
     drones.forEach(d => {
-      if (d.park || d.grounded) return;
+      if (d.park || d.grounded || (isFormation && d.gi < 0)) return;
       assigned++;
-      if (engineNow >= d.pt && d.lastDist < 12) arrived++;
+      const isArrived = isFormation ? d.locked : engineNow >= d.pt && d.lastDist < 12;
+      if (isArrived) arrived++;
+      if (isFormation && d.edge){ critical++; if (isArrived) criticalArrived++; }
     });
-    return assigned ? arrived / assigned : 1;
+    const progress = assigned ? arrived / assigned : 1;
+    return critical && criticalArrived < critical ? Math.min(.93, progress) : progress;
   }
 
   /* per-frame group transforms → drone targets */
-  function groupTargets(){
+  function groupTargets(dt){
     if (!show.groups.length) return;
     const { s } = skyBox();
     show.groups.forEach(G => {
@@ -390,17 +487,15 @@ const ENGINE = (() => {
           gy = G.oy - (m.to[1] - (G.spec.at[1] || 0)) * s * .9 * e;
         }
       });
-      /* drawn figures slowly turn to show their volume */
-      if (G.spec.art && !(G.spec.motion || []).some(m => m.type === 'orbit')){
-        ang += Math.sin(t * .00036) * .62;
-      }
-      if (show.swirl && engineNow < show.swirl) ang += (show.swirl - engineNow) * .0009;
+      /* Drawn figures stay square to the audience. Their animation comes
+         from deliberate keyframes, not from rocking the whole sculpture. */
       G.gx = gx; G.gy = gy; G.dang = ang; G.dsc = sc;
     });
 
     drones.forEach(d => {
       if (d.park || d.gi < 0 || d.gi >= show.groups.length) return;
       const G = show.groups[d.gi];
+      const oldTx = d.tx, oldTy = d.ty, oldTz = d.tz;
       /* true 3D yaw: orbit spins the formation through depth, like a real show */
       const cos = Math.cos(G.dang), sin = Math.sin(G.dang);
       const rx = d.bx * cos - d.bz * sin;
@@ -412,6 +507,13 @@ const ENGINE = (() => {
       d.tx = G.gx + rx * G.dsc;
       d.ty = ty;
       d.tz = rz / Math.max(1, s) + (G.zoff || 0);
+      if (show.formed && dt > 0){
+        d.tvx = (d.tx - oldTx) / dt;
+        d.tvy = (d.ty - oldTy) / dt;
+        d.tvz = (d.tz - oldTz) * DEPTH_SCALE / dt;
+      } else {
+        d.tvx = 0; d.tvy = 0; d.tvz = 0;
+      }
     });
   }
 
@@ -447,7 +549,7 @@ const ENGINE = (() => {
   }
 
   function stop(){ show = null; mode = 'ground'; groundTargets(); }
-  function pause(v){ if (show){ show.paused = v; if (!v) show.until += 400; } }
+  function pause(v){ if (show) show.paused = v; }
   const playing = () => mode === 'show';
 
   /* pre-show: the fleet waits on the pad; a few scouts patrol the sky */
@@ -456,27 +558,39 @@ const ENGINE = (() => {
     drones.forEach((d, i) => {
       if (i % 97 === 3){
         /* scout patrol: lazy figure-eight above the city */
-        d.gi = -2; d.park = false; d.landing = false; d.grounded = false;
+        d.gi = -2; d.park = false; d.landing = false; d.grounded = false; d.locked = false; d.edge = false; d.contour = false; d.part = -1;
+        const a = camT * .12 + i * 1.3;
+        d.tx = cx + Math.sin(a) * s * .9;
+        d.ty = cy + Math.sin(a * 2) * s * .3;
+        d.tz = Math.cos(a) * .4;
+        d.tvx = 0; d.tvy = 0; d.tvz = 0;
         d.tcolor = PALETTE[i % PALETTE.length];
         planPath(d, 0, 1, .5);
         return;
       }
       const p = padSlots[i];
-      d.gi = -1; d.park = false; d.landing = true;
+      d.gi = -1; d.park = false; d.landing = true; d.locked = false; d.edge = false; d.contour = false; d.part = -1;
+      d.tvx = 0; d.tvy = 0; d.tvz = 0;
       d.tx = p.x; d.ty = p.y; d.tz = p.z;
       d.tcolor = PALETTE[i % PALETTE.length];
       planPath(d, Math.random() * 1.5, i % 2 ? -1 : 1, .4);
     });
   }
 
-  function scoutTargets(){
+  function scoutTargets(dt){
     const { cx, cy, s } = skyBox();
     drones.forEach((d, i) => {
       if (d.gi !== -2) return;
+      const oldTx = d.tx, oldTy = d.ty, oldTz = d.tz;
       const a = camT * .12 + i * 1.3;
       d.tx = cx + Math.sin(a) * s * .9;
       d.ty = cy + Math.sin(a * 2) * s * .3;
       d.tz = Math.cos(a) * .4;
+      if (dt > 0){
+        d.tvx = (d.tx - oldTx) / dt;
+        d.tvy = (d.ty - oldTy) / dt;
+        d.tvz = (d.tz - oldTz) * DEPTH_SCALE / dt;
+      }
     });
   }
 
@@ -488,22 +602,19 @@ const ENGINE = (() => {
       const seed = drones[Math.floor(Math.random() * N)];
       drones.forEach(d => {
         if (Math.abs(d.tx - seed.tx) < 70 && Math.abs(d.ty - seed.ty) < 70 && Math.random() < .5){
-          const a = Math.random() * Math.PI * 2, v = .12 + Math.random() * .14;
-          d.vx += Math.cos(a) * v; d.vy += Math.sin(a) * v; d.spark = 1;
+          d.spark = 1;
         }
       });
       AUDIO.popFar();
     }
     if (fx === 'embers'){
-      drones.forEach(d => { if (!d.park && Math.random() < dt * .0004){ d.spark = 1; d.vy += .02; } });
+      drones.forEach(d => { if (!d.park && Math.random() < dt * .0004) d.spark = 1; });
     }
     if (fx === 'pyro'){
       /* drone-fired pyrotechnics: bright spark streams pour off the formation */
       drones.forEach(d => {
         if (!d.park && d.lastDist < 14 && Math.random() < dt * .0007){
           d.spark = 1;
-          d.vy += .1 + Math.random() * .08;
-          d.vx += (Math.random() - .5) * .1;
         }
       });
       if (Math.random() < dt * .001) AUDIO.popFar();
@@ -516,24 +627,26 @@ const ENGINE = (() => {
   /* ── physics: thrust-limited seek, separation, wind, ground handling ── */
   const cells = new Map();
   function separatePair(a, b){
-    const dx = a.x - b.x, dy = a.y - b.y;
-    const dd = Math.hypot(dx, dy);
-    if (dd >= SEP_R || dd <= .01) return;
-    /* different depth layers don't collide */
-    if (Math.abs(a.z - b.z) * 260 > SEP_R) return;
+    let dx = a.x - b.x, dy = a.y - b.y, dz = (a.z - b.z) * DEPTH_SCALE;
+    let dd = Math.hypot(dx, dy, dz);
+    if (dd >= SEP_R) return;
+    if (dd <= .01){
+      const ang = (a.id * 2.399 + b.id * .917) % (Math.PI * 2);
+      dx = Math.cos(ang); dy = Math.sin(ang); dz = 0; dd = 1;
+    }
     /* station-holding drones are immovable — traffic yields to the
        formation, never the other way around */
-    const lockA = a.lastDist < 12, lockB = b.lastDist < 12;
+    const lockA = a.locked, lockB = b.locked;
     if (lockA && lockB) return;
     const overlap = SEP_R - dd;
-    const f = (overlap / SEP_R) * SEP_PUSH * 16;
-    const nx = dx / dd, ny = dy / dd;
-    const push = overlap * .18;
-    if (!lockA){ a.vx += nx * f; a.vy += ny * f; a.x += nx * push; a.y += ny * push; }
-    if (!lockB){ b.vx -= nx * f; b.vy -= ny * f; b.x -= nx * push; b.y -= ny * push; }
+    const f = (overlap / SEP_R) * SEP_PUSH;
+    const nx = dx / dd, ny = dy / dd, nz = dz / dd;
+    if (!lockA){ a.sax += nx * f; a.say += ny * f; a.saz += nz * f; }
+    if (!lockB){ b.sax -= nx * f; b.say -= ny * f; b.saz -= nz * f; }
   }
   function separation(){
     cells.clear();
+    drones.forEach(d => { d.sax = 0; d.say = 0; d.saz = 0; });
     const CS = 20;
     drones.forEach(d => {
       if (d.grounded) return;
@@ -567,84 +680,112 @@ const ENGINE = (() => {
     windA += dt * .0002;
     const wx = (Math.sin(windA) + Math.sin(windA * 2.7) * .5) * .0018;
     const wy = Math.cos(windA * .8) * .0008;
+    separation();
 
     drones.forEach(d => {
-      d.px = d.x; d.py = d.y; d.hasPrev = true;
-      let holding = false;
-
       if (d.grounded){
         /* parked: motors off, just blink */
-        d.vx = 0; d.vy = 0;
-        d.x = d.tx; d.y = d.ty;
+        d.vx = 0; d.vy = 0; d.vz = 0;
+        d.x = d.tx; d.y = d.ty; d.z = d.tz;
         return;
       }
-      {
-        const finalDist = Math.hypot(d.tx - d.x, d.ty - d.y) || .001;
+      const stationLocked = d.locked && !!(show && d.gi >= 0);
+      if (stationLocked){
+        /* A formed picture is a rigid light sculpture. Once an aircraft owns
+           its slot it inherits that slot's transform exactly; making hundreds
+           of independent controllers chase it is what caused the visible
+           rubber-band wobble and torn character silhouettes. */
+        const vm = Math.hypot(d.tvx, d.tvy, d.tvz);
+        const vk = vm > MAX_SPEED ? MAX_SPEED / vm : 1;
+        d.vx = d.tvx * vk; d.vy = d.tvy * vk; d.vz = d.tvz * vk;
+        d.x = d.tx; d.y = d.ty; d.z = d.tz;
+        d.lastDist = 0;
+      } else {
+        const finalDist = Math.hypot(d.tx - d.x, d.ty - d.y, (d.tz - d.z) * DEPTH_SCALE);
         /* follow the choreographed path while it runs, then station-keep */
-        const c = d.pt !== undefined ? carrot(d) : { x: d.tx, y: d.ty, done: true };
-        const gx = c.done ? d.tx : c.x, gy = c.done ? d.ty : c.y;
-        const dx = gx - d.x, dy = gy - d.y;
-        const dist = Math.hypot(dx, dy) || .001;
-        const cap = MAX_SPEED * 1.3 * d.perf;
-        const accel = MAX_THRUST * d.perf;
-        /* proportional tracking: close the gap to the carrot over ~240ms;
-           once the path is done, brake from actual stopping distance */
-        let want = c.done
-          ? Math.min(MAX_SPEED * d.perf, Math.sqrt(2 * accel * Math.min(dist, ARRIVE_R)))
-          : Math.min(cap, dist / 240 * 16.7);
-        const dvx = dx / dist * want, dvy = dy / dist * want;
-        let sx = dvx - d.vx, sy = dvy - d.vy;
-        const sm = Math.hypot(sx, sy);
-        const maxS = accel * dt * (c.done ? 1 : 2.2);
-        if (sm > maxS){ sx = sx / sm * maxS; sy = sy / sm * maxS; }
-        d.vx += sx; d.vy += sy;
+        const c = d.pt !== undefined ? carrot(d) : {
+          x: d.tx, y: d.ty, z: d.tz, vx: d.tvx, vy: d.tvy, vz: d.tvz, done: true,
+        };
+        const trackSlot = c.done || !!(show && show.formed && d.gi >= 0);
+        const gx = trackSlot ? d.tx : c.x, gy = trackSlot ? d.ty : c.y, gz = trackSlot ? d.tz : c.z;
+        const gvx = trackSlot ? d.tvx : c.vx, gvy = trackSlot ? d.tvy : c.vy, gvz = trackSlot ? d.tvz : c.vz;
+        const dx = gx - d.x, dy = gy - d.y, dz = (gz - d.z) * DEPTH_SCALE;
+        const dist = Math.hypot(dx, dy, dz) || .001;
+        const cap = MAX_SPEED;
+        const accel = MAX_THRUST * Math.min(1, d.perf);
+        /* Feed the target velocity forward, then close the remaining error at
+           a speed from which the aircraft can still stop under max thrust. */
+        const closing = Math.min(cap, Math.sqrt(2 * accel * Math.min(dist, ARRIVE_R)), dist / 180);
+        let wantX = gvx + dx / dist * closing;
+        let wantY = gvy + dy / dist * closing;
+        let wantZ = gvz + dz / dist * closing;
+        const wantM = Math.hypot(wantX, wantY, wantZ);
+        if (wantM > cap){ wantX *= cap / wantM; wantY *= cap / wantM; wantZ *= cap / wantM; }
+
+        d.nx = d.nx * .96 + (Math.random() - .5) * .0016;
+        d.ny = d.ny * .96 + (Math.random() - .5) * .0016;
+        let ax = (wantX - d.vx) / Math.max(1, dt) + d.sax + d.nx * .01 + wx * .01;
+        let ay = (wantY - d.vy) / Math.max(1, dt) + d.say + d.ny * .01 + wy * .01;
+        let az = (wantZ - d.vz) / Math.max(1, dt) + d.saz;
+        const am = Math.hypot(ax, ay, az);
+        if (am > accel){ ax *= accel / am; ay *= accel / am; az *= accel / am; }
+        d.vx += ax * dt; d.vy += ay * dt; d.vz += az * dt;
+
+        const drag = Math.exp(-DRAG * dt);
+        d.vx *= drag; d.vy *= drag; d.vz *= drag;
+        const speed = Math.hypot(d.vx, d.vy, d.vz);
+        if (speed > MAX_SPEED){
+          d.vx *= MAX_SPEED / speed; d.vy *= MAX_SPEED / speed; d.vz *= MAX_SPEED / speed;
+        }
+        d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt / DEPTH_SCALE;
+
+        let arrivedDist = Math.hypot(d.tx - d.x, d.ty - d.y, (d.tz - d.z) * DEPTH_SCALE);
+        if (d.gi >= 0 && trackSlot && arrivedDist < LOCK_R){
+          d.locked = true;
+          d.x = d.tx; d.y = d.ty; d.z = d.tz;
+          const targetSpeed = Math.hypot(d.tvx, d.tvy, d.tvz);
+          const targetK = targetSpeed > MAX_SPEED ? MAX_SPEED / targetSpeed : 1;
+          d.vx = d.tvx * targetK; d.vy = d.tvy * targetK; d.vz = d.tvz * targetK;
+          arrivedDist = 0;
+        }
 
         if (mode === 'show' && d.lastDist > 40 && finalDist < 8 && !d.park && !d.landing && Math.random() < .12) d.spark = Math.max(d.spark, .22);
-        d.lastDist = finalDist;
-        holding = mode === 'show' && show && show.formed && !d.park && !d.landing && c.done && finalDist < 12;
+        d.lastDist = arrivedDist;
 
         /* touch down */
-        if (d.landing && c.done && finalDist < 3){
+        if (d.landing && c.done && arrivedDist < 3){
           d.grounded = true; d.landing = false;
-          d.x = d.tx; d.y = d.ty; d.vx = 0; d.vy = 0;
+          d.x = d.tx; d.y = d.ty; d.z = d.tz;
+          d.vx = 0; d.vy = 0; d.vz = 0;
         }
       }
-      /* turbulence: airborne drones live and breathe — but a LOCKED station is
-         pinned. Real fleets look frozen on hold; wobble reads as amateur hour. */
-      const holdMul = holding ? .06 : 1;
-      d.nx = d.nx * (holding ? .78 : .96) + (Math.random() - .5) * .0016 * holdMul;
-      d.ny = d.ny * (holding ? .78 : .96) + (Math.random() - .5) * .0016 * holdMul;
-      d.vx += d.nx * dt * .01; d.vy += d.ny * dt * .01;
-      /* wind + drag (station-lock rejects nearly all of it) */
-      d.vx += wx * dt * .01 * (holding ? .04 : 1);
-      d.vy += wy * dt * .01 * (holding ? .04 : 1);
-      const drag = Math.max(0, 1 - DRAG * dt * (holding ? 2.4 : 1));
-      d.vx *= drag; d.vy *= drag;
-      d.x += d.vx * dt; d.y += d.vy * dt;
-      if (holding){
-        const snap = Math.min(.3, dt * .013);
-        d.x += (d.tx - d.x) * snap;
-        d.y += (d.ty - d.y) * snap;
-        d.vx *= .58; d.vy *= .58;
-      }
       d.phase += dt * .0022;
-      d.z += (d.tz - d.z) * Math.min(1, dt * (holding ? .0032 : .0012));
       if (d.spark > 0) d.spark = Math.max(0, d.spark - dt * .0012);
       /* takeoff glitter curtain: LEDs cycle colors while the fleet climbs */
       const climbing = show && show.acts[show.idx] && show.acts[show.idx].system === 'takeoff';
-      if (climbing && !d.grounded && Math.random() < dt * .0011){
+      if (d.locked && d.gi >= 0){
+        /* A station lock includes the light program. Once the aircraft owns
+           its pixel, its exact costume color must hold for the whole act. */
+        d.color = d.tcolor;
+      } else if (climbing && !d.grounded && Math.random() < dt * .0011){
         d.color = PALETTE[Math.floor(Math.random() * PALETTE.length)];
       } else if (d.color !== d.tcolor){
-        /* smooth cross-fade — LEDs dim into the new color, never snap */
-        d.color = hexLerp(d.color, d.tcolor, Math.min(1, dt * .0028));
+        /* Thin props need their assigned LED color quickly; a slow costume
+           cross-fade made white blades read as missing during the hold. */
+        const colorRate = d.edge ? .012 : .0028;
+        d.color = hexLerp(d.color, d.tcolor, Math.min(1, dt * colorRate));
         if (d.color.toLowerCase() === d.tcolor.toLowerCase()) d.color = d.tcolor;
       }
     });
 
-    separation();
   }
 
   function physics(dt){
+    /* Keep the previous rendered frame, not merely the previous 16ms physics
+       slice. This gives trails a stable, truthful length on slow frames. */
+    drones.forEach(d => {
+      d.px = d.x; d.py = d.y; d.pz = d.z; d.hasPrev = true;
+    });
     for (let left = dt; left > 0; left -= PHYSICS_STEP){
       physicsStep(Math.min(PHYSICS_STEP, left));
     }
@@ -652,26 +793,39 @@ const ENGINE = (() => {
 
   /* ── frame ── */
   function tick(now){
-    const dt = Math.min(50, Math.max(0, now - (lastNow || now)));
+    const frameDt = Math.min(50, Math.max(0, now - (lastNow || now)));
     lastNow = now;
-    engineNow += dt;
-    camT += dt / 1000;
 
     const paused = show && show.paused;
+    const dt = paused ? 0 : frameDt;
+    engineNow += dt;
+    camT += dt / 1000;
     const act = show ? show.acts[show.idx] : null;
 
     if (!paused){
-      if (mode === 'ground') scoutTargets();
+      if (mode === 'ground') scoutTargets(dt);
       if (show){
         if (!show.formed){
           /* wait until the image is properly formed (with a patience cap) */
-          if (formationProgress() > .96 || engineNow - show.formingSince > 15000){
+          const timedOut = engineNow - show.formingSince > 9000;
+          const ready = formationProgress() > .94;
+          if (ready || timedOut){
+            if (show.groups.length){
+              /* Finish the last few lagging pixels as one clean lock. This
+                 removes the dead pause without ever beginning a broken pose. */
+              drones.forEach(d => {
+                if (d.gi < 0 || d.park || d.grounded || d.locked) return;
+                d.x = d.tx; d.y = d.ty; d.z = d.tz;
+                d.vx = d.tvx; d.vy = d.tvy; d.vz = d.tvz;
+                d.lastDist = 0; d.locked = true; d.color = d.tcolor;
+              });
+            }
             show.formed = true;
             show.until = engineNow + act.duration;
             show.groups.forEach(G => { G.t0 = engineNow; });   /* motion starts now */
           }
         } else if (engineNow >= show.until){ nextAct(); }
-        if (show && !show.acts[show.idx].system){ groupTargets(); actFx(show.acts[show.idx], dt); }
+        if (show && !show.acts[show.idx].system){ groupTargets(dt); actFx(show.acts[show.idx], dt); }
       }
       physics(dt);
     }
@@ -691,7 +845,11 @@ const ENGINE = (() => {
     STAGE.init(canvas, N);
     if (!drones.length) makeDrones();
     groundTargets();
-    drones.forEach((d, i) => { d.grounded = true; d.x = padSlots[i].x; d.y = padSlots[i].y; });
+    drones.forEach((d, i) => {
+      if (d.gi === -2) return;
+      d.grounded = true;
+      d.x = padSlots[i].x; d.y = padSlots[i].y; d.z = padSlots[i].z;
+    });
     requestAnimationFrame(tick);
   }
 
@@ -701,7 +859,8 @@ const ENGINE = (() => {
              x: Math.round(d.x), y: Math.round(d.y), z: +(d.z || 0).toFixed(2),
              tx: Math.round(d.tx), ty: Math.round(d.ty),
              bx: Math.round(d.bx), by: Math.round(d.by), bz: Math.round(d.bz || 0),
-             si: d.si, oi: d.oi, c: d.color, tc: d.tcolor,
-             ld: Math.round(d.lastDist),
+             si: d.si, oi: d.oi, part: d.part, pu: +d.pu.toFixed(3), pv: +d.pv.toFixed(3), c: d.color, tc: d.tcolor,
+             ld: Math.round(d.lastDist), locked: d.locked, edge: d.edge,
+             speed: +Math.hypot(d.vx, d.vy, d.vz).toFixed(4),
            })) };
 })();
